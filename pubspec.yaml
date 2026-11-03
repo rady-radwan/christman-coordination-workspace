@@ -1,0 +1,157 @@
+name: christman_coordination
+description: Christman Coordination Workspace - BIM/MEP coordination between the Christman VDC team and trade partners.
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: '>=3.5.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  provider: ^6.1.2
+  shared_preferences: ^2.3.2
+  supabase_flutter: ^2.8.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/logo/
+    - assets/icon/
+  fonts:
+    - family: Barlow
+      fonts:
+        - asset: assets/fonts/Barlow-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Barlow-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Barlow-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Barlow-Bold.ttf
+          weight: 700
+    - family: BarlowCondensed
+      fonts:
+        - asset: assets/fonts/BarlowCondensed-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/BarlowCondensed-Bold.ttf
+          weight: 700
+
+    - family: Google Sans
+      fonts:
+        - asset: assets/fonts/extra/GoogleSans-400.ttf
+          weight: 400
+        - asset: assets/fonts/extra/GoogleSans-600.ttf
+          weight: 600
+        - asset: assets/fonts/extra/GoogleSans-700.ttf
+          weight: 700
+
+    - family: IBM Plex Sans
+      fonts:
+        - asset: assets/fonts/extra/IBMPlexSans-400.ttf
+          weight: 400
+        - asset: assets/fonts/extra/IBMPlexSans-600.ttf
+          weight: 600
+        - asset: assets/fonts/extra/IBMPlexSans-700.ttf
+          weight: 700
+
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/extra/Inter-400.ttf
+          weight: 400
+        - asset: assets/fonts/extra/Inter-600.ttf
+          weight: 600
+        - asset: assets/fonts/extra/Inter-700.ttf
+          weight: 700
+
+    - family: Josefin Sans
+      fonts:
+        - asset: assets/fonts/extra/JosefinSans-400.ttf
+          weight: 400
+        - asset: assets/fonts/extra/JosefinSans-600.ttf
+          weight: 600
+        - asset: assets/fonts/extra/JosefinSans-700.ttf
+          weight: 700
+
+    - family: Lato
+      fonts:
+        - asset: assets/fonts/extra/Lato-400.ttf
+          weight: 400
+        - asset: assets/fonts/extra/Lato-700.ttf
+          weight: 700
+
+    - family: Montserrat
+      fonts:
+        - asset: assets/fonts/extra/Montserrat-400.ttf
+          weight: 400
+        - asset: assets/fonts/extra/Montserrat-600.ttf
+          weight: 600
+        - asset: assets/fonts/extra/Montserrat-700.ttf
+          weight: 700
+
+    - family: Noto Sans
+      fonts:
+        - asset: assets/fonts/extra/NotoSans-400.ttf
+          weight: 400
+        - asset: assets/fonts/extra/NotoSans-600.ttf
+          weight: 600
+        - asset: assets/fonts/extra/NotoSans-700.ttf
+          weight: 700
+
+    - family: Nunito Sans
+      fonts:
+        - asset: assets/fonts/extra/NunitoSans-400.ttf
+          weight: 400
+        - asset: assets/fonts/extra/NunitoSans-600.ttf
+          weight: 600
+        - asset: assets/fonts/extra/NunitoSans-700.ttf
+          weight: 700
+
+    - family: Open Sans
+      fonts:
+        - asset: assets/fonts/extra/OpenSans-400.ttf
+          weight: 400
+        - asset: assets/fonts/extra/OpenSans-600.ttf
+          weight: 600
+        - asset: assets/fonts/extra/OpenSans-700.ttf
+          weight: 700
+
+    - family: Poppins
+      fonts:
+        - asset: assets/fonts/extra/Poppins-400.ttf
+          weight: 400
+        - asset: assets/fonts/extra/Poppins-600.ttf
+          weight: 600
+        - asset: assets/fonts/extra/Poppins-700.ttf
+          weight: 700
+
+    - family: Roboto
+      fonts:
+        - asset: assets/fonts/extra/Roboto-400.ttf
+          weight: 400
+        - asset: assets/fonts/extra/Roboto-600.ttf
+          weight: 600
+        - asset: assets/fonts/extra/Roboto-700.ttf
+          weight: 700
+
+    - family: Source Sans 3
+      fonts:
+        - asset: assets/fonts/extra/SourceSans3-400.ttf
+          weight: 400
+        - asset: assets/fonts/extra/SourceSans3-600.ttf
+          weight: 600
+        - asset: assets/fonts/extra/SourceSans3-700.ttf
+          weight: 700
+
+    - family: Work Sans
+      fonts:
+        - asset: assets/fonts/extra/WorkSans-400.ttf
+          weight: 400
+        - asset: assets/fonts/extra/WorkSans-600.ttf
+          weight: 600
+        - asset: assets/fonts/extra/WorkSans-700.ttf
+          weight: 700

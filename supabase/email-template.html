@@ -1,0 +1,22 @@
+<!-- Christman Coordination Workspace — sign-in email.
+     Paste into Supabase > Authentication > Emails > Templates, in BOTH
+     "Confirm signup" and "Magic Link" (Subject: Your Coordination Workspace sign-in code). -->
+<div style="margin:0;padding:24px 0;background:#F4F2EE;font-family:Segoe UI,Arial,Helvetica,sans-serif;color:#1A1A1A">
+  <div style="max-width:480px;margin:0 auto;background:#FFFFFF;border:1px solid #DEDAD3;border-radius:12px;overflow:hidden">
+    <div style="padding:20px 28px;background:#231D18">
+      <span style="display:inline-block;width:18px;height:18px;background:#AE734B;vertical-align:middle"></span>
+      <span style="font-size:20px;font-weight:800;letter-spacing:2px;color:#FFFFFF;vertical-align:middle;margin-left:8px">CHRISTMAN</span>
+      <div style="margin-top:6px;font-size:12px;font-weight:700;letter-spacing:2px;color:#D19A6C">COORDINATION WORKSPACE</div>
+    </div>
+    <div style="padding:28px">
+      <p style="margin:0 0 8px;font-size:16px">Your sign-in code is:</p>
+      <p style="margin:0 0 20px;font-size:38px;font-weight:800;letter-spacing:10px;color:#1A1A1A">{{ .Token }}</p>
+      <p style="margin:0 0 20px;font-size:15px;color:#3A3835">Type this code in the app. It expires in one hour.</p>
+      <p style="margin:0 0 24px">
+        <a href="{{ .ConfirmationURL }}" style="display:inline-block;padding:12px 22px;background:#8C5A32;color:#FFFFFF;text-decoration:none;font-weight:700;border-radius:8px">Open the app and sign in</a>
+      </p>
+      <p style="margin:0;font-size:13px;color:#5C5A56">The button only works on a computer or phone where the app is installed.
+        If you did not ask for this code, you can ignore this email.</p>
+    </div>
+  </div>
+</div>

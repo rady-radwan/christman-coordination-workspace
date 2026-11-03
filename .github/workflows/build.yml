@@ -1,0 +1,169 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Analyze and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter --version
+      - run: flutter pub get
+      - name: Analyze
+        run: |
+          dart analyze --format=machine > analyze.txt 2>&1 || true
+          sed "s#${GITHUB_WORKSPACE}/##" analyze.txt | awk -F'|' 'NF>=8 {lvl=($1=="ERROR")?"error":(($1=="WARNING")?"warning":"notice"); printf "::%s file=%s,line=%s,col=%s::%s: %s\n", lvl, $4, $5, $6, $3, $8}'
+          flutter analyze --no-fatal-infos --no-fatal-warnings
+      - name: Test
+        run: |
+          set -o pipefail
+          flutter test 2>&1 | tee test.txt || { echo "::error::$(tail -40 test.txt | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')"; exit 1; }
+
+  windows:
+    name: Windows installer
+    needs: check
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Create Windows platform files
+        shell: pwsh
+        run: |
+          flutter create --platforms=windows --org com.christman --project-name christman_coordination .
+          Copy-Item assets/icon/app_icon.ico windows/runner/resources/app_icon.ico -Force
+          (Get-Content windows/runner/main.cpp) `
+            -replace 'L"christman_coordination"', 'L"Christman Coordination Workspace"' `
+            -replace 'Win32Window::Size size\(1280, 720\)', 'Win32Window::Size size(1440, 900)' |
+            Set-Content windows/runner/main.cpp
+          (Get-Content windows/runner/Runner.rc) `
+            -replace '"christman_coordination"', '"Christman Coordination Workspace"' `
+            -replace '"com.christman"', '"The Christman Company"' |
+            Set-Content windows/runner/Runner.rc
+          python tool/patch_windows_runner.py
+
+      - name: Work out version
+        id: ver
+        shell: pwsh
+        run: |
+          $v = (Select-String -Path pubspec.yaml -Pattern '^version:\s*([0-9.]+)').Matches[0].Groups[1].Value
+          if ($env:GITHUB_REF -like 'refs/tags/v*') { $v = $env:GITHUB_REF_NAME.Substring(1) }
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      - name: Build
+        shell: pwsh
+        run: |
+          flutter pub get
+          flutter build windows --release 2>&1 | Tee-Object -FilePath build.log
+          if ($LASTEXITCODE -ne 0) {
+            $tail = (Get-Content build.log -Tail 45) -join '%0A'
+            Write-Output "::error title=Windows build failed::$tail"
+            exit 1
+          }
+
+      - name: Add Visual C++ runtime next to the app
+        shell: pwsh
+        run: |
+          foreach ($f in 'msvcp140.dll','vcruntime140.dll','vcruntime140_1.dll') {
+            Copy-Item "C:\Windows\System32\$f" build/windows/x64/runner/Release/ -Force
+          }
+
+      - name: Make installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
+          & $iscc "/DAppVersion=${{ steps.ver.outputs.version }}" installer/coordination.iss
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: dist/*.exe
+
+  android:
+    name: Android app
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Create Android platform files
+        run: |
+          flutter create --platforms=android --org com.christman --project-name christman_coordination .
+          python3 tool/patch_android.py
+
+      - name: Build APK
+        run: |
+          set -o pipefail
+          yes | flutter doctor --android-licenses > /dev/null 2>&1 || true
+          flutter pub get
+          v=$(grep -E '^version:' pubspec.yaml | sed -E 's/version:[[:space:]]*([0-9.]+).*/\1/')
+          flutter build apk --release --split-per-abi 2>&1 | tee build.log || {
+            echo "::error title=Android build failed::$(tail -60 build.log | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')"; exit 1; }
+          mkdir -p dist
+          # Modern phones (64-bit) and older 32-bit phones get separate, smaller files.
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "dist/ChristmanCoordination-$v-android.apk"
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk "dist/ChristmanCoordination-$v-android-older-phones.apk"
+          cp build/app/outputs/flutter-apk/app-x86_64-release.apk "dist/ChristmanCoordination-$v-android-emulator-x86_64.apk" || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: dist/*.apk
+
+  publish:
+    name: Publish installers
+    needs: [windows, android]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      # Keeps the newest installers on the "installer" branch (one commit, replaced each build).
+      - name: Save latest installers to the installer branch
+        if: github.ref == 'refs/heads/main'
+        run: |
+          mkdir inst && cd inst
+          git init -q -b installer
+          cp ../dist/* .
+          echo "Latest Windows and Android installers built from main at ${{ github.sha }}." > README.md
+          git add -A
+          git -c user.name="github-actions" -c user.email="github-actions@users.noreply.github.com" commit -q -m "Installers from ${{ github.sha }}"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" installer
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*

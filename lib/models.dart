@@ -1,0 +1,516 @@
+import 'package:flutter/material.dart';
+
+/// Coordination item status workflow:
+/// Open -> Assigned / In Review -> Response Submitted -> Model Updated – Verify -> Resolved / Closed,
+/// plus On Hold and Voided. Only the admin or a coordinator can close, void, hold or reopen.
+enum ItemStatus {
+  open('open', 'Open', 'Created; waiting for the coordinator or a trade'),
+  inReview('in_review', 'Assigned / In Review', 'A trade is reviewing it'),
+  responseSubmitted('response_submitted', 'Response Submitted', 'The trade answered; the coordinator reviews it'),
+  modelUpdated('model_updated', 'Model Updated – Verify', 'The trade updated the model; the coordinator verifies it'),
+  closed('closed', 'Resolved / Closed', 'Resolved and closed'),
+  onHold('on_hold', 'On Hold', 'Paused for now'),
+  voided('void', 'Voided', 'Canceled or created by mistake');
+
+  const ItemStatus(this.db, this.label, this.meaning);
+  final String db;
+  final String label;
+  final String meaning;
+
+  static ItemStatus fromDb(String? s) => values.firstWhere((v) => v.db == s, orElse: () => open);
+
+  /// Not closed and not voided.
+  bool get isActive => this != closed && this != voided;
+
+  /// Statuses where a missed due date counts as overdue.
+  bool get canBeOverdue => this == open || this == inReview || this == responseSubmitted || this == modelUpdated;
+
+  /// Short label for tight spaces.
+  String get shortLabel => switch (this) {
+        ItemStatus.inReview => 'In Review',
+        ItemStatus.modelUpdated => 'Verify',
+        ItemStatus.closed => 'Closed',
+        _ => label,
+      };
+
+  /// The main path shown in the progress bar (On Hold and Voided are side states).
+  static const path = [open, inReview, responseSubmitted, modelUpdated, closed];
+}
+
+enum Priority {
+  urgent('Urgent'),
+  critical('Critical'),
+  high('High'),
+  medium('Medium'),
+  low('Low');
+
+  const Priority(this.label);
+  final String label;
+
+  static Priority fromDb(String? s) => values.firstWhere((p) => p.name == s, orElse: () => Priority.medium);
+}
+
+/// What a person can do on one project. The admin can do everything on every project.
+enum Role {
+  admin('admin', 'Admin'),
+  coordinator('coordinator', 'Coordinator'),
+  tradeLead('trade_lead', 'Trade lead'),
+  tradeMember('trade_member', 'Trade member'),
+  viewer('viewer', 'Viewer (read only)');
+
+  const Role(this.db, this.label);
+  final String db;
+  final String label;
+
+  static Role fromDb(String? s) => values.firstWhere((r) => r.db == s, orElse: () => Role.viewer);
+
+  bool get isCoord => this == admin || this == coordinator;
+  bool get isTrade => this == tradeLead || this == tradeMember;
+  bool get needsTrade => isTrade;
+
+  /// Roles that can be given on a project (admin is account-wide).
+  static const projectRoles = [coordinator, tradeLead, tradeMember, viewer];
+}
+
+DateTime? _ts(dynamic v) => v == null ? null : DateTime.parse(v as String).toLocal();
+
+DateTime? _date(dynamic v) {
+  if (v == null) return null;
+  final p = (v as String).split('-');
+  if (p.length < 3) return null;
+  return DateTime(int.parse(p[0]), int.parse(p[1]), int.parse(p[2].substring(0, 2)));
+}
+
+String dateToDb(DateTime d) =>
+    '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+List<String> _strings(dynamic v) => v == null ? <String>[] : (v as List).map((e) => e.toString()).toList();
+
+class Profile {
+  Profile({
+    required this.id,
+    required this.name,
+    required this.email,
+    this.company = '',
+    this.phone = '',
+    this.isAdmin = false,
+    this.status = 'approved',
+    this.createdAt,
+  });
+
+  final String id;
+  final String name;
+  final String email;
+  final String company;
+  final String phone;
+  final bool isAdmin;
+  final String status; // pending, approved, removed
+  final DateTime? createdAt;
+
+  bool get isPending => status == 'pending';
+  bool get isApproved => status == 'approved';
+  bool get isRemoved => status == 'removed';
+
+  /// True right after the first sign-in, before the person typed their name.
+  bool get needsDetails => company.trim().isEmpty && name == email.split('@').first;
+
+  String get initials {
+    final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    if (parts.isEmpty) return '?';
+    if (parts.length == 1) return parts.first.substring(0, parts.first.length >= 2 ? 2 : 1).toUpperCase();
+    return (parts.first[0] + parts.last[0]).toUpperCase();
+  }
+
+  factory Profile.fromJson(Map<String, dynamic> j) => Profile(
+        id: j['id'] as String,
+        name: (j['name'] ?? '') as String,
+        email: (j['email'] ?? '') as String,
+        company: (j['company'] ?? '') as String,
+        phone: (j['phone'] ?? '') as String,
+        isAdmin: (j['is_admin'] ?? false) as bool,
+        status: (j['status'] ?? 'pending') as String,
+        createdAt: _ts(j['created_at']),
+      );
+}
+
+class Project {
+  Project({
+    required this.id,
+    required this.name,
+    required this.code,
+    this.location = '',
+    this.buildings = const [],
+    this.levels = const [],
+    this.zones = const [],
+    this.defaultDueDays = 3,
+    this.archived = false,
+  });
+
+  final String id;
+  final String name;
+  final String code;
+  final String location;
+  final List<String> buildings;
+  final List<String> levels;
+  final List<String> zones;
+  final int defaultDueDays;
+  final bool archived;
+
+  factory Project.fromJson(Map<String, dynamic> j) => Project(
+        id: j['id'] as String,
+        name: (j['name'] ?? '') as String,
+        code: (j['code'] ?? '') as String,
+        location: (j['location'] ?? '') as String,
+        buildings: _strings(j['buildings']),
+        levels: _strings(j['levels']),
+        zones: _strings(j['zones']),
+        defaultDueDays: (j['default_due_days'] ?? 3) as int,
+        archived: (j['archived'] ?? false) as bool,
+      );
+}
+
+class Trade {
+  Trade({required this.id, required this.projectId, required this.name, required this.code, this.company = '', this.sort = 0});
+
+  final String id;
+  final String projectId;
+  final String name;
+  final String code;
+  final String company;
+  final int sort;
+
+  /// "Mechanical · Hart Mechanical"
+  String get label => company.isEmpty ? name : '$name · $company';
+
+  factory Trade.fromJson(Map<String, dynamic> j) => Trade(
+        id: j['id'] as String,
+        projectId: j['project_id'] as String,
+        name: (j['name'] ?? '') as String,
+        code: (j['code'] ?? '') as String,
+        company: (j['company'] ?? '') as String,
+        sort: (j['sort'] ?? 0) as int,
+      );
+}
+
+class ItemType {
+  ItemType({required this.id, required this.projectId, required this.name, required this.code, this.sort = 0, this.active = true});
+
+  final String id;
+  final String projectId;
+  final String name;
+  final String code;
+  final int sort;
+  final bool active;
+
+  factory ItemType.fromJson(Map<String, dynamic> j) => ItemType(
+        id: j['id'] as String,
+        projectId: j['project_id'] as String,
+        name: (j['name'] ?? '') as String,
+        code: (j['code'] ?? '') as String,
+        sort: (j['sort'] ?? 0) as int,
+        active: (j['active'] ?? true) as bool,
+      );
+}
+
+class Member {
+  Member({required this.projectId, required this.userId, required this.role, this.tradeId});
+
+  final String projectId;
+  final String userId;
+  final Role role;
+  final String? tradeId;
+
+  factory Member.fromJson(Map<String, dynamic> j) => Member(
+        projectId: j['project_id'] as String,
+        userId: j['user_id'] as String,
+        role: Role.fromDb(j['role'] as String?),
+        tradeId: j['trade_id'] as String?,
+      );
+}
+
+class Item {
+  Item({
+    required this.id,
+    required this.projectId,
+    required this.typeId,
+    required this.number,
+    required this.title,
+    this.description = '',
+    this.priority = Priority.medium,
+    this.status = ItemStatus.open,
+    this.building = '',
+    this.level = '',
+    this.zone = '',
+    this.grid = '',
+    this.clashTest = '',
+    this.clashId = '',
+    this.viewpoint = '',
+    this.revitIds = '',
+    this.sheet = '',
+    this.tradeIds = const [],
+    this.bicTradeId,
+    required this.bicSince,
+    this.dueDate,
+    this.needsRfi = false,
+    this.rfiNumber = '',
+    required this.createdBy,
+    required this.createdAt,
+    required this.updatedAt,
+    this.closedAt,
+    this.closedBy,
+  });
+
+  final String id;
+  final String projectId;
+  final String typeId;
+  final String number;
+  final String title;
+  final String description;
+  final Priority priority;
+  final ItemStatus status;
+  final String building;
+  final String level;
+  final String zone;
+  final String grid;
+  final String clashTest;
+  final String clashId;
+  final String viewpoint;
+  final String revitIds;
+  final String sheet;
+  final List<String> tradeIds;
+
+  /// Trade that must act now; null means the ball is with the Christman coordinator.
+  final String? bicTradeId;
+  final DateTime bicSince;
+  final DateTime? dueDate;
+  final bool needsRfi;
+  final String rfiNumber;
+  final String createdBy;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  final DateTime? closedAt;
+  final String? closedBy;
+
+  /// Whole days past the due date, or 0 when not overdue.
+  int overdueDays([DateTime? now]) {
+    if (dueDate == null || !status.canBeOverdue) return 0;
+    final n = now ?? DateTime.now();
+    final today = DateTime(n.year, n.month, n.day);
+    final d = today.difference(dueDate!).inDays;
+    return d > 0 ? d : 0;
+  }
+
+  bool get isOverdue => overdueDays() > 0;
+
+  /// "Level 3 · Zone B · C-4 / D-5"
+  String get locationText {
+    final parts = <String>[
+      if (building.isNotEmpty) building,
+      if (level.isNotEmpty) level,
+      if (zone.isNotEmpty) zone,
+      if (grid.isNotEmpty) grid,
+    ];
+    return parts.join(' · ');
+  }
+
+  bool get hasModelRef =>
+      clashTest.isNotEmpty || clashId.isNotEmpty || viewpoint.isNotEmpty || revitIds.isNotEmpty || sheet.isNotEmpty;
+
+  /// Text that search looks through: number, title, clash ID, grid and more.
+  String get searchText =>
+      '$number $title $clashId $clashTest $grid $level $zone $building $viewpoint $revitIds $sheet $rfiNumber'.toLowerCase();
+
+  factory Item.fromJson(Map<String, dynamic> j) => Item(
+        id: j['id'] as String,
+        projectId: j['project_id'] as String,
+        typeId: j['type_id'] as String,
+        number: (j['number'] ?? '') as String,
+        title: (j['title'] ?? '') as String,
+        description: (j['description'] ?? '') as String,
+        priority: Priority.fromDb(j['priority'] as String?),
+        status: ItemStatus.fromDb(j['status'] as String?),
+        building: (j['building'] ?? '') as String,
+        level: (j['level'] ?? '') as String,
+        zone: (j['zone'] ?? '') as String,
+        grid: (j['grid'] ?? '') as String,
+        clashTest: (j['clash_test'] ?? '') as String,
+        clashId: (j['clash_id'] ?? '') as String,
+        viewpoint: (j['viewpoint'] ?? '') as String,
+        revitIds: (j['revit_ids'] ?? '') as String,
+        sheet: (j['sheet'] ?? '') as String,
+        tradeIds: _strings(j['trade_ids']),
+        bicTradeId: j['bic_trade_id'] as String?,
+        bicSince: _ts(j['bic_since']) ?? DateTime.now(),
+        dueDate: _date(j['due_date']),
+        needsRfi: (j['needs_rfi'] ?? false) as bool,
+        rfiNumber: (j['rfi_number'] ?? '') as String,
+        createdBy: j['created_by'] as String,
+        createdAt: _ts(j['created_at']) ?? DateTime.now(),
+        updatedAt: _ts(j['updated_at']) ?? DateTime.now(),
+        closedAt: _ts(j['closed_at']),
+        closedBy: j['closed_by'] as String?,
+      );
+}
+
+class Comment {
+  Comment({required this.id, required this.itemId, required this.authorId, required this.body, required this.createdAt, this.editedAt});
+
+  final String id;
+  final String itemId;
+  final String authorId;
+  final String body;
+  final DateTime createdAt;
+  final DateTime? editedAt;
+
+  factory Comment.fromJson(Map<String, dynamic> j) => Comment(
+        id: j['id'] as String,
+        itemId: j['item_id'] as String,
+        authorId: j['author_id'] as String,
+        body: (j['body'] ?? '') as String,
+        createdAt: _ts(j['created_at']) ?? DateTime.now(),
+        editedAt: _ts(j['edited_at']),
+      );
+}
+
+/// One line of an item's history: created, status, ball, priority, due, rfi, edited.
+class ItemEvent {
+  ItemEvent({
+    required this.id,
+    required this.itemId,
+    this.actorId,
+    required this.kind,
+    this.fromValue = '',
+    this.toValue = '',
+    required this.createdAt,
+  });
+
+  final int id;
+  final String itemId;
+  final String? actorId;
+  final String kind;
+  final String fromValue;
+  final String toValue;
+  final DateTime createdAt;
+
+  factory ItemEvent.fromJson(Map<String, dynamic> j) => ItemEvent(
+        id: (j['id'] as num).toInt(),
+        itemId: j['item_id'] as String,
+        actorId: j['actor_id'] as String?,
+        kind: (j['kind'] ?? '') as String,
+        fromValue: (j['from_value'] ?? '') as String,
+        toValue: (j['to_value'] ?? '') as String,
+        createdAt: _ts(j['created_at']) ?? DateTime.now(),
+      );
+
+  /// Plain-language description, e.g. "Ball moved to Mechanical".
+  String describe() {
+    String st(String v) => ItemStatus.fromDb(v).label;
+    String pr(String v) => Priority.fromDb(v).label;
+    switch (kind) {
+      case 'created':
+        return 'Created the item';
+      case 'status':
+        return 'Status: ${st(fromValue)} → ${st(toValue)}';
+      case 'ball':
+        return fromValue.isEmpty ? 'Ball in court: $toValue' : 'Ball moved: $fromValue → $toValue';
+      case 'priority':
+        return 'Priority: ${pr(fromValue)} → ${pr(toValue)}';
+      case 'due':
+        if (toValue.isEmpty) return 'Removed the due date';
+        return fromValue.isEmpty ? 'Set the due date to $toValue' : 'Due date: $fromValue → $toValue';
+      case 'rfi':
+        return toValue.isEmpty ? 'Turned off "Needs RFI"' : 'Needs RFI: ${toValue.replaceFirst('RFI ', '').isEmpty ? 'yes' : toValue}';
+      case 'edited':
+        return 'Edited: $toValue';
+      default:
+        return kind;
+    }
+  }
+}
+
+class AppNotification {
+  AppNotification({
+    required this.id,
+    required this.kind,
+    required this.title,
+    this.body = '',
+    this.projectId,
+    this.itemId,
+    required this.createdAt,
+    this.readAt,
+  });
+
+  final int id;
+  final String kind;
+  final String title;
+  final String body;
+  final String? projectId;
+  final String? itemId;
+  final DateTime createdAt;
+  final DateTime? readAt;
+
+  bool get isRead => readAt != null;
+
+  IconData get icon => switch (kind) {
+        'ball' => Icons.sports_baseball_outlined,
+        'new_item' => Icons.add_circle_outline,
+        'response' => Icons.reply_outlined,
+        'closed' => Icons.check_circle_outline,
+        'comment' => Icons.chat_bubble_outline,
+        'signup' => Icons.person_add_alt_1_outlined,
+        'suggestion' => Icons.group_add_outlined,
+        'overdue' => Icons.alarm_outlined,
+        _ => Icons.notifications_none,
+      };
+
+  factory AppNotification.fromJson(Map<String, dynamic> j) => AppNotification(
+        id: (j['id'] as num).toInt(),
+        kind: (j['kind'] ?? '') as String,
+        title: (j['title'] ?? '') as String,
+        body: (j['body'] ?? '') as String,
+        projectId: j['project_id'] as String?,
+        itemId: j['item_id'] as String?,
+        createdAt: _ts(j['created_at']) ?? DateTime.now(),
+        readAt: _ts(j['read_at']),
+      );
+}
+
+/// An invitation (added by the admin) or a member suggestion (from a trade lead).
+class Invite {
+  Invite({
+    required this.id,
+    required this.email,
+    this.name = '',
+    this.company = '',
+    required this.projectId,
+    required this.role,
+    this.tradeId,
+    required this.status,
+    this.suggestedBy,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String email;
+  final String name;
+  final String company;
+  final String projectId;
+  final Role role;
+  final String? tradeId;
+  final String status; // suggested, approved, rejected, used
+  final String? suggestedBy;
+  final DateTime createdAt;
+
+  factory Invite.fromJson(Map<String, dynamic> j) => Invite(
+        id: j['id'] as String,
+        email: (j['email'] ?? '') as String,
+        name: (j['name'] ?? '') as String,
+        company: (j['company'] ?? '') as String,
+        projectId: j['project_id'] as String,
+        role: Role.fromDb(j['role'] as String?),
+        tradeId: j['trade_id'] as String?,
+        status: (j['status'] ?? '') as String,
+        suggestedBy: j['suggested_by'] as String?,
+        createdAt: _ts(j['created_at']) ?? DateTime.now(),
+      );
+}
