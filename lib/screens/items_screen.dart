@@ -372,15 +372,17 @@ class ItemCard extends StatelessWidget {
     final type = s.typeById(item.typeId);
     final bic = s.tradeById(item.bicTradeId);
     final closed = !item.status.isActive;
+    // Open items get a light tint of their priority color; closed ones stay plain.
+    final look = priorityLook(item.priority, c);
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Opacity(
         opacity: closed ? 0.62 : 1,
         child: Material(
-          color: c.card,
+          color: closed ? c.card : look.tint,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: selected ? c.accent : c.line, width: selected ? 2 : 1),
+            side: BorderSide(color: selected ? c.accent : (closed ? c.line : look.border), width: selected ? 2 : 1),
           ),
           child: InkWell(
             borderRadius: BorderRadius.circular(12),
@@ -409,6 +411,12 @@ class ItemCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 6),
                 Row(children: [
+                  if (item.photos.isNotEmpty) ...[
+                    Icon(Icons.photo_camera_outlined, size: 15, color: c.muted),
+                    const SizedBox(width: 3),
+                    Text('${item.photos.length}', style: TextStyle(fontSize: 13, color: c.muted)),
+                    const SizedBox(width: 10),
+                  ],
                   Icon(Icons.adjust, size: 15, color: c.ink2),
                   const SizedBox(width: 5),
                   Flexible(

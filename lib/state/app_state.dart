@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show AuthChangeEvent;
 
 import '../data/api.dart';
 import '../models.dart';
+import '../theme.dart';
 import '../util/dates.dart';
 import 'settings.dart';
 
@@ -37,7 +39,7 @@ extension DueFilterLabel on DueFilter {
 }
 
 class AppState extends ChangeNotifier {
-  AppState(this.api, this.settings);
+  AppState(this.api, this.settings) : appearance = settings.appearance;
 
   final Api api;
   final Settings settings;
@@ -77,8 +79,8 @@ class AppState extends ChangeNotifier {
   DueFilter filterDue = DueFilter.any;
   SortBy sortBy = SortBy.due;
 
-  ThemeMode get themeMode => settings.themeMode;
-  String get fontChoice => settings.fontChoice;
+  /// This person's theme, colors, font and text size.
+  Appearance appearance;
 
   // ------------------------------------------------------------------ start-up
 
@@ -103,6 +105,7 @@ class AppState extends ChangeNotifier {
   void dispose() {
     _authSub?.cancel();
     _debounce?.cancel();
+    _saveLook?.cancel();
     api.stopListening();
     super.dispose();
   }
@@ -114,6 +117,7 @@ class AppState extends ChangeNotifier {
     _signingIn = true;
     try {
       me = await api.loadMe();
+      if (me != null) _applyAccountLook(me!);
       if (me == null) {
         bootError = 'Signed in, but your profile was not found. Ask the admin to check the server setup.';
       } else if (me!.isApproved) {
@@ -540,8 +544,8 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<Item> createItem(Map<String, dynamic> values) async {
-    final item = await api.createItem({...values, 'project_id': project!.id, 'created_by': me!.id});
+  Future<Item> createItem(Map<String, dynamic> values, {List<Uint8List> photos = const []}) async {
+    final item = await api.createItem({...values, 'project_id': project!.id, 'created_by': me!.id}, photos: photos);
     _replace(item);
     selectedItemId = item.id;
     notifyListeners();
@@ -562,28 +566,37 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> addComment(Item item, String body) async {
-    if (body.trim().isEmpty) return;
-    await api.addComment(item.id, body);
+  Future<void> addComment(Item item, String body, {List<Uint8List> photos = const []}) async {
+    if (body.trim().isEmpty && photos.isEmpty) return;
+    await api.addComment(item, body, photos: photos);
     threadVersion++;
     notifyListeners();
   }
 
+  /// Uploads new photos (already marked up) and returns the item's full photo list.
+  Future<List<String>> uploadItemPhotos(Item item, List<Uint8List> photos) async {
+    final refs = <String>[];
+    for (final b in photos) {
+      refs.add(await api.uploadPhoto(item.projectId, item.id, b));
+    }
+    return refs;
+  }
+
   /// Trade: answer the item; the ball goes back to the coordinator.
   Future<void> submitResponse(Item item, String note) async {
-    if (note.trim().isNotEmpty) await api.addComment(item.id, note);
+    if (note.trim().isNotEmpty) await api.addComment(item, note);
     await updateItem(item, {'status': ItemStatus.responseSubmitted.db});
   }
 
   /// Trade: the model was changed; the coordinator verifies it.
   Future<void> markModelUpdated(Item item, String note) async {
-    if (note.trim().isNotEmpty) await api.addComment(item.id, note);
+    if (note.trim().isNotEmpty) await api.addComment(item, note);
     await updateItem(item, {'status': ItemStatus.modelUpdated.db});
   }
 
   /// Moves the ball to a trade (or back to the coordinator when [tradeId] is null).
   Future<void> passBall(Item item, String? tradeId, String note) async {
-    if (note.trim().isNotEmpty) await api.addComment(item.id, note);
+    if (note.trim().isNotEmpty) await api.addComment(item, note);
     final values = <String, dynamic>{'bic_trade_id': tradeId};
     // Handing an open item to a trade means the trade is now reviewing it.
     if (myRole.isCoord && tradeId != null && (item.status == ItemStatus.open || item.status == ItemStatus.responseSubmitted || item.status == ItemStatus.modelUpdated)) {
@@ -593,7 +606,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> setStatus(Item item, ItemStatus status, String note) async {
-    if (note.trim().isNotEmpty) await api.addComment(item.id, note);
+    if (note.trim().isNotEmpty) await api.addComment(item, note);
     await updateItem(item, {'status': status.db});
   }
 
@@ -632,18 +645,37 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ------------------------------------------------------------------ theme
+  // ------------------------------------------------------------------ look (per person)
 
-  Future<void> setThemeMode(ThemeMode m) async {
-    await settings.setThemeMode(m);
-    notifyListeners();
+  ThemeMode get themeMode => appearance.mode;
+
+  /// Uses the look saved on the account; a first sign-in keeps this device's look and saves it.
+  void _applyAccountLook(Profile p) {
+    if (p.prefs.isNotEmpty) {
+      appearance = Appearance.fromJson(p.prefs);
+      unawaited(settings.setAppearance(appearance));
+    } else if (appearance != const Appearance()) {
+      unawaited(api.savePrefs(appearance.toJson()).catchError((_) {}));
+    }
   }
+
+  Timer? _saveLook;
+
+  /// Changes the look right away and saves it on this device and on the account.
+  void setAppearance(Appearance a) {
+    if (a == appearance) return;
+    appearance = a;
+    notifyListeners();
+    unawaited(settings.setAppearance(a));
+    _saveLook?.cancel();
+    // Wait a moment so dragging the text-size slider doesn't save on every step.
+    _saveLook = Timer(const Duration(milliseconds: 700), () {
+      if (me != null) unawaited(api.savePrefs(a.toJson()).catchError((_) {}));
+    });
+  }
+
+  Future<void> setThemeMode(ThemeMode m) async => setAppearance(appearance.copyWith(mode: m));
 
   Future<void> toggleTheme(Brightness current) =>
       setThemeMode(current == Brightness.dark ? ThemeMode.light : ThemeMode.dark);
-
-  Future<void> setFont(String family) async {
-    await settings.setFontChoice(family);
-    notifyListeners();
-  }
 }

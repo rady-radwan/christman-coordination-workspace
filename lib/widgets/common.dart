@@ -51,24 +51,54 @@ class PriorityBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = CwColors.of(context);
-    final (Color fg, Color bg, Color? border) = switch (priority) {
-      Priority.urgent => (Colors.white, c.dark ? const Color(0xFF93231C) : const Color(0xFFB3261E), null),
-      Priority.critical => (c.urgentText, c.urgentBg, null),
-      Priority.high => (c.statusFg(ItemStatus.responseSubmitted), c.statusBg(ItemStatus.responseSubmitted), null),
-      Priority.medium => (c.ink2, c.pill, c.line2),
-      Priority.low => (c.muted, c.pill, null),
-    };
+    final look = priorityLook(priority, CwColors.of(context));
     return Container(
       padding: EdgeInsets.symmetric(horizontal: large ? 8 : 7, vertical: large ? 3 : 2),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(5),
-        border: border == null ? null : Border.all(color: border),
-      ),
+      decoration: BoxDecoration(color: look.solid, borderRadius: BorderRadius.circular(5)),
       child: Text(
         priority.label.toUpperCase(),
-        style: TextStyle(fontSize: large ? 12 : 11, fontWeight: FontWeight.w700, letterSpacing: 0.7, color: fg),
+        style: TextStyle(fontSize: large ? 12 : 11, fontWeight: FontWeight.w800, letterSpacing: 0.7, color: look.onSolid),
+      ),
+    );
+  }
+}
+
+/// Priority choice in forms: colored dot when off, filled with the priority color when on.
+class PriorityChip extends StatelessWidget {
+  const PriorityChip({super.key, required this.priority, required this.selected, required this.onTap});
+  final Priority priority;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = CwColors.of(context);
+    final look = priorityLook(priority, c);
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: Material(
+        color: selected ? look.solid : look.tint,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: BorderSide(color: selected ? look.solid : look.border, width: selected ? 2 : 1),
+        ),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(8),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              if (selected)
+                Icon(Icons.check, size: 16, color: look.onSolid)
+              else
+                StatusDot(look.solid, size: 9),
+              const SizedBox(width: 7),
+              Text(priority.label,
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: selected ? look.onSolid : look.text)),
+            ]),
+          ),
+        ),
       ),
     );
   }

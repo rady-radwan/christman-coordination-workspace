@@ -5,6 +5,7 @@ import '../config.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
+import 'appearance_panel.dart';
 import 'notifications_screen.dart';
 import 'project_setup_screen.dart';
 
@@ -24,7 +25,7 @@ class SettingsScreen extends StatelessWidget {
           children: [
             Center(
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 720),
+                constraints: const BoxConstraints(maxWidth: 860),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                   if (!wide && s.isAdmin) ...[
                     Panel(
@@ -41,29 +42,7 @@ class SettingsScreen extends StatelessWidget {
                   ],
                   const _Profile(),
                   const SizedBox(height: 16),
-                  Panel(
-                    padding: const EdgeInsets.all(18),
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                      Text('Appearance', style: condensed(22, color: c.ink)),
-                      const SizedBox(height: 10),
-                      SegmentedButton<ThemeMode>(
-                        segments: const [
-                          ButtonSegment(value: ThemeMode.light, label: Text('Light'), icon: Icon(Icons.light_mode_outlined)),
-                          ButtonSegment(value: ThemeMode.dark, label: Text('Dark'), icon: Icon(Icons.dark_mode_outlined)),
-                          ButtonSegment(value: ThemeMode.system, label: Text('Same as Windows/phone'), icon: Icon(Icons.brightness_auto_outlined)),
-                        ],
-                        selected: {s.themeMode},
-                        onSelectionChanged: (v) => s.setThemeMode(v.first),
-                      ),
-                      const SizedBox(height: 16),
-                      const FieldLabel('Font'),
-                      DropdownButtonFormField<String>(
-                        initialValue: fontChoices.contains(s.fontChoice) ? s.fontChoice : '',
-                        items: fontChoices.map((f) => DropdownMenuItem(value: f, child: Text(fontLabel(f)))).toList(),
-                        onChanged: (v) => s.setFont(v ?? ''),
-                      ),
-                    ]),
-                  ),
+                  const AppearancePanel(),
                   const SizedBox(height: 16),
                   Panel(
                     padding: const EdgeInsets.all(18),

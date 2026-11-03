@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -6,7 +8,9 @@ import '../models.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
 import '../util/dates.dart';
+import '../editor/markup_editor.dart';
 import '../widgets/common.dart';
+import '../widgets/photos.dart';
 import 'item_form.dart';
 
 /// Full-screen item page for phones.
@@ -44,6 +48,7 @@ class _ItemDetailState extends State<ItemDetail> {
   bool _loading = false;
   bool _historyTab = false;
   final _reply = TextEditingController();
+  final List<Uint8List> _replyPhotos = [];
   bool _sending = false;
 
   @override
@@ -80,11 +85,12 @@ class _ItemDetailState extends State<ItemDetail> {
 
   Future<void> _send(AppState s, Item item) async {
     final text = _reply.text.trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty && _replyPhotos.isEmpty) return;
     setState(() => _sending = true);
     try {
-      await s.addComment(item, text);
+      await s.addComment(item, text, photos: List.of(_replyPhotos));
       _reply.clear();
+      _replyPhotos.clear();
     } catch (e) {
       if (mounted) showError(context, e);
     } finally {
@@ -169,26 +175,74 @@ class _ItemDetailState extends State<ItemDetail> {
     });
   }
 
-  Widget _description(Item item, CwColors c, Widget thread) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        if (item.description.isNotEmpty) ...[
-          SelectableText(item.description, style: TextStyle(fontSize: 15, height: 1.5, color: c.ink2)),
-          const SizedBox(height: 18),
-        ],
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: BoxDecoration(color: c.surface2, borderRadius: BorderRadius.circular(10), border: Border.all(color: c.line)),
-          child: Row(children: [
-            Icon(Icons.photo_library_outlined, size: 18, color: c.muted),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text('Marked-up screenshots, voice messages and attachments arrive in the next update (Stage 2).',
-                  style: TextStyle(fontSize: 13, color: c.muted)),
-            ),
-          ]),
+  Future<void> _markUpStored(AppState s, Item item, int i) async {
+    try {
+      final bytes = await s.api.photoBytes(item.photos[i]);
+      if (!mounted) return;
+      final done = await openMarkupEditor(context, bytes, title: 'Mark up photo ${i + 1} · ${item.number}');
+      if (done == null) return;
+      final ref = (await s.uploadItemPhotos(item, [done])).first;
+      final next = List.of(item.photos)..[i] = ref;
+      await s.updateItem(item, {'photos': next});
+      if (mounted) showInfo(context, 'Photo ${i + 1} updated');
+    } catch (e) {
+      if (mounted) showError(context, e);
+    }
+  }
+
+  Future<void> _addPhotos(AppState s, Item item) async {
+    final list = await pickAndMarkUp(context, camera: false);
+    if (list.isEmpty) return;
+    try {
+      final refs = await s.uploadItemPhotos(item, list);
+      await s.updateItem(item, {'photos': [...item.photos, ...refs]});
+    } catch (e) {
+      if (mounted) showError(context, e);
+    }
+  }
+
+  Future<void> _removePhoto(AppState s, Item item, int i) async {
+    if (!await confirm(context, 'Remove photo ${i + 1}?', 'It is removed from ${item.number} for everyone.', ok: 'Remove', danger: true)) {
+      return;
+    }
+    try {
+      await s.updateItem(item, {'photos': List.of(item.photos)..removeAt(i)});
+    } catch (e) {
+      if (mounted) showError(context, e);
+    }
+  }
+
+  Widget _description(Item item, CwColors c, Widget thread) {
+    final s = context.read<AppState>();
+    final coord = s.myRole.isCoord;
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      if (item.photos.isNotEmpty) ...[
+        ItemGallery(
+          key: ValueKey(item.photos.join()),
+          refs: item.photos,
+          onMarkUp: coord ? (i) => _markUpStored(s, item, i) : null,
+          onAdd: coord ? () => _addPhotos(s, item) : null,
+          onRemove: coord ? (i) => _removePhoto(s, item, i) : null,
         ),
+        const SizedBox(height: 16),
+      ] else if (coord) ...[
+        Align(
+          alignment: Alignment.centerLeft,
+          child: OutlinedButton.icon(
+            onPressed: () => _addPhotos(s, item),
+            icon: const Icon(Icons.add_photo_alternate_outlined, size: 18),
+            label: const Text('Add Photos / Screenshots'),
+          ),
+        ),
+        const SizedBox(height: 16),
+      ],
+      if (item.description.isNotEmpty) ...[
+        SelectableText(item.description, style: TextStyle(fontSize: 15, height: 1.5, color: c.ink2)),
         const SizedBox(height: 18),
-        thread,
-      ]);
+      ],
+      thread,
+    ]);
+  }
 
   Widget _thread(AppState s, CwColors c, Item item) {
     final entries = <(DateTime, Widget)>[];
@@ -235,6 +289,14 @@ class _ItemDetailState extends State<ItemDetail> {
       for (final e in entries) Padding(padding: const EdgeInsets.only(bottom: 12), child: e.$2),
       if (!_historyTab && s.canComment) ...[
         const SizedBox(height: 4),
+        if (_replyPhotos.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Wrap(spacing: 8, runSpacing: 8, children: [
+              for (var i = 0; i < _replyPhotos.length; i++)
+                PendingPhoto(bytes: _replyPhotos[i], onRemove: () => setState(() => _replyPhotos.removeAt(i))),
+            ]),
+          ),
         Container(
           padding: const EdgeInsets.fromLTRB(14, 4, 6, 4),
           decoration: BoxDecoration(color: c.surface, borderRadius: BorderRadius.circular(12), border: Border.all(color: c.line2)),
@@ -258,7 +320,11 @@ class _ItemDetailState extends State<ItemDetail> {
                 ),
               ),
             ),
-            const SizedBox(width: 6),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 2),
+              child: AddPhotoButtons(compact: true, onAdded: (list) => setState(() => _replyPhotos.addAll(list))),
+            ),
+            const SizedBox(width: 2),
             Padding(
               padding: const EdgeInsets.only(bottom: 4),
               child: IconButton.filled(
@@ -682,7 +748,24 @@ class _CommentBubble extends StatelessWidget {
               ),
             ),
             child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Expanded(child: SelectableText(comment.body, style: TextStyle(fontSize: 14, height: 1.45, color: c.ink))),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  if (comment.body.isNotEmpty) SelectableText(comment.body, style: TextStyle(fontSize: 14, height: 1.45, color: c.ink)),
+                  if (comment.photos.isNotEmpty) ...[
+                    if (comment.body.isNotEmpty) const SizedBox(height: 8),
+                    Wrap(spacing: 8, runSpacing: 8, children: [
+                      for (var i = 0; i < comment.photos.length; i++)
+                        InkWell(
+                          onTap: () => showPhotoViewer(context, comment.photos, i),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: SizedBox(width: 160, height: 110, child: RefImage(comment.photos[i])),
+                          ),
+                        ),
+                    ]),
+                  ],
+                ]),
+              ),
               if (mine || s.isAdmin)
                 PopupMenuButton<String>(
                   tooltip: 'Reply options',

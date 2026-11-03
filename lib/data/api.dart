@@ -1,9 +1,17 @@
 import 'dart:async';
+import 'dart:typed_data';
 
+import 'package:flutter/widgets.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
 
 import '../config.dart';
 import '../models.dart';
+
+const _uuid = Uuid();
+
+/// Private storage bucket; files live under <project id>/<item id>/.
+const _bucket = 'files';
 
 /// A message that can be shown to people as is.
 class AppException implements Exception {
@@ -44,6 +52,10 @@ class Api {
       throw AppException(_friendlyAuth(e.message));
     } on PostgrestException catch (e) {
       throw AppException(_friendly(e.message));
+    } on StorageException catch (e) {
+      throw AppException(e.message.contains('row-level security')
+          ? 'You do not have permission to add files to this project.'
+          : 'Photo upload failed: ${e.message}');
     } on AppException {
       rethrow;
     } catch (e) {
@@ -153,6 +165,13 @@ class Api {
             .update({'name': name.trim(), 'company': company.trim(), 'phone': phone.trim()})
             .eq('id', myId!)
             .select());
+      });
+
+  /// Saves this person's theme, colors, font and text size on their account.
+  Future<void> savePrefs(Map<String, dynamic> prefs) => guard(() async {
+        final id = myId;
+        if (id == null) return;
+        await _db.from('profiles').update({'prefs': prefs}).eq('id', id);
       });
 
   /// Everyone the signed-in person may see (the admin sees all accounts).
@@ -282,8 +301,14 @@ class Api {
         return rows.map(Item.fromJson).toList();
       });
 
-  Future<Item> createItem(Map<String, dynamic> values) => guard(() async {
-        final row = await _db.from('items').insert(values).select().single();
+  /// Creates an item, uploading its (already marked-up) photos first.
+  Future<Item> createItem(Map<String, dynamic> values, {List<Uint8List> photos = const []}) => guard(() async {
+        final id = _uuid.v4();
+        final refs = <String>[];
+        for (final b in photos) {
+          refs.add(await _upload(values['project_id'] as String, id, b));
+        }
+        final row = await _db.from('items').insert({...values, 'id': id, 'photos': refs}).select().single();
         return Item.fromJson(row);
       });
 
@@ -302,8 +327,12 @@ class Api {
         return (c.map(Comment.fromJson).toList(), e.map(ItemEvent.fromJson).toList());
       });
 
-  Future<void> addComment(String itemId, String body) => guard(() async {
-        await _db.from('item_comments').insert({'item_id': itemId, 'author_id': myId, 'body': body.trim()});
+  Future<void> addComment(Item item, String body, {List<Uint8List> photos = const []}) => guard(() async {
+        final refs = <String>[];
+        for (final b in photos) {
+          refs.add(await _upload(item.projectId, item.id, b));
+        }
+        await _db.from('item_comments').insert({'item_id': item.id, 'author_id': myId, 'body': body.trim(), 'attachments': refs});
       });
 
   Future<void> editComment(String id, String body) => guard(() async {
@@ -312,6 +341,53 @@ class Api {
 
   Future<void> deleteComment(String id) => guard(() async {
         await _mustChange(_db.from('item_comments').delete().eq('id', id).select());
+      });
+
+  // ------------------------------------------------------------------ photos
+
+  /// Uploads one JPEG photo and returns its reference ("sb:<path>").
+  Future<String> uploadPhoto(String projectId, String itemId, Uint8List bytes) =>
+      guard(() => _upload(projectId, itemId, bytes));
+
+  Future<String> _upload(String projectId, String itemId, Uint8List bytes) async {
+    final path = '$projectId/$itemId/${_uuid.v4()}.jpg';
+    await _db.storage.from(_bucket).uploadBinary(
+          path,
+          bytes,
+          fileOptions: const FileOptions(contentType: 'image/jpeg'),
+        );
+    return 'sb:$path';
+  }
+
+  static String _path(String ref) => ref.startsWith('sb:') ? ref.substring(3) : ref;
+
+  final Map<String, (String, DateTime)> _signedUrls = {};
+  final Map<String, Uint8List> _bytesCache = {};
+
+  Future<String> _signedUrl(String ref) async {
+    final path = _path(ref);
+    final cached = _signedUrls[path];
+    if (cached != null && cached.$2.isAfter(DateTime.now())) return cached.$1;
+    final url = await guard(() => _db.storage.from(_bucket).createSignedUrl(path, 60 * 60 * 12));
+    _signedUrls[path] = (url, DateTime.now().add(const Duration(hours: 11)));
+    return url;
+  }
+
+  /// A picture that can be shown with Image(image: ...).
+  Future<ImageProvider> image(String ref) async {
+    final b = _bytesCache[_path(ref)];
+    if (b != null) return MemoryImage(b);
+    return NetworkImage(await _signedUrl(ref));
+  }
+
+  /// The photo's bytes (used to mark up an existing photo again).
+  Future<Uint8List> photoBytes(String ref) => guard(() async {
+        final path = _path(ref);
+        final cached = _bytesCache[path];
+        if (cached != null) return cached;
+        final b = await _db.storage.from(_bucket).download(path);
+        _bytesCache[path] = b;
+        return b;
       });
 
   // ------------------------------------------------------------------ notifications

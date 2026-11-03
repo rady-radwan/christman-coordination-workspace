@@ -698,16 +698,16 @@ begin
                                case when new.needs_rfi then 'RFI ' || new.rfi_number else '' end);
   end if;
 
-  if new.title is distinct from old.title then changed := changed || 'title'; end if;
-  if new.description is distinct from old.description then changed := changed || 'description'; end if;
+  if new.title is distinct from old.title then changed := array_append(changed, 'title'); end if;
+  if new.description is distinct from old.description then changed := array_append(changed, 'description'); end if;
   if (new.building, new.level, new.zone, new.grid) is distinct from (old.building, old.level, old.zone, old.grid) then
-    changed := changed || 'location';
+    changed := array_append(changed, 'location');
   end if;
   if (new.clash_test, new.clash_id, new.viewpoint, new.revit_ids, new.sheet)
      is distinct from (old.clash_test, old.clash_id, old.viewpoint, old.revit_ids, old.sheet) then
-    changed := changed || 'model reference';
+    changed := array_append(changed, 'model reference');
   end if;
-  if new.trade_ids is distinct from old.trade_ids then changed := changed || 'trades'; end if;
+  if new.trade_ids is distinct from old.trade_ids then changed := array_append(changed, 'trades'); end if;
   if cardinality(changed) > 0 then
     insert into item_events (item_id, actor_id, kind, to_value) values (new.id, me, 'edited', array_to_string(changed, ', '));
   end if;

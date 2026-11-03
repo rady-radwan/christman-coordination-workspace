@@ -4,8 +4,11 @@ Project: **christman-coordination-workspace** (`uyihedpnoputpxvueyol`, region us
 
 ## 1. Database — done
 
-`supabase/schema.sql` is already installed on the project. To set up a fresh project, paste the whole
-file into **SQL Editor > New query** and click **Run**. It is safe to run again.
+Already installed on the project. To set up a fresh project, run these files in order in
+**SQL Editor > New query** (each is safe to run again):
+
+1. `supabase/schema.sql` — tables, numbering, permission rules
+2. `supabase/update-2-photos-and-preferences.sql` — photos (private `files` storage) and each person's look
 
 ## 2. Sign-in email (6-digit code)
 

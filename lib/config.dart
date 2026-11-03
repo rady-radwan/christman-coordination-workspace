@@ -10,4 +10,4 @@ const serverKey = 'sb_publishable_QPloC9N0iHlizOwm8SqcMQ_Pzjyot5e';
 const signInRedirect = 'christman-coord://login-callback';
 
 const appName = 'Christman Coordination Workspace';
-const appVersion = '0.1.0';
+const appVersion = '0.2.0';

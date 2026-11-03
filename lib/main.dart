@@ -33,14 +33,19 @@ class CoordinationApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final mode = context.select<AppState, ThemeMode>((s) => s.themeMode);
-    final font = context.select<AppState, String>((s) => s.fontChoice);
+    final look = context.select<AppState, Appearance>((s) => s.appearance);
     return MaterialApp(
       title: appName,
       debugShowCheckedModeBanner: false,
-      theme: buildTheme(Brightness.light, font: font),
-      darkTheme: buildTheme(Brightness.dark, font: font),
-      themeMode: mode,
+      theme: buildTheme(Brightness.light, look),
+      darkTheme: buildTheme(Brightness.dark, look),
+      themeMode: look.mode,
+      // Each person's text size, on top of the size set in Windows / on the phone.
+      builder: (context, child) {
+        final mq = MediaQuery.of(context);
+        final system = mq.textScaler.scale(1).clamp(0.8, 1.6).toDouble();
+        return MediaQuery(data: mq.copyWith(textScaler: TextScaler.linear(system * look.textScale)), child: child!);
+      },
       home: const _Root(),
     );
   }
@@ -72,7 +77,7 @@ class _StartupError extends StatelessWidget {
   @override
   Widget build(BuildContext context) => MaterialApp(
         debugShowCheckedModeBanner: false,
-        theme: buildTheme(Brightness.light),
+        theme: buildTheme(Brightness.light, const Appearance()),
         home: Scaffold(
           body: EmptyState(icon: Icons.cloud_off_outlined, title: 'Could not start', body: message),
         ),

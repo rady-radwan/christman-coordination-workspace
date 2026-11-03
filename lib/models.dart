@@ -96,6 +96,7 @@ class Profile {
     this.isAdmin = false,
     this.status = 'approved',
     this.createdAt,
+    this.prefs = const {},
   });
 
   final String id;
@@ -106,6 +107,9 @@ class Profile {
   final bool isAdmin;
   final String status; // pending, approved, removed
   final DateTime? createdAt;
+
+  /// This person's own look: theme, colors, font and text size (see Appearance).
+  final Map<String, dynamic> prefs;
 
   bool get isPending => status == 'pending';
   bool get isApproved => status == 'approved';
@@ -130,6 +134,7 @@ class Profile {
         isAdmin: (j['is_admin'] ?? false) as bool,
         status: (j['status'] ?? 'pending') as String,
         createdAt: _ts(j['created_at']),
+        prefs: (j['prefs'] as Map?)?.cast<String, dynamic>() ?? const {},
       );
 }
 
@@ -258,6 +263,7 @@ class Item {
     required this.updatedAt,
     this.closedAt,
     this.closedBy,
+    this.photos = const [],
   });
 
   final String id;
@@ -290,6 +296,9 @@ class Item {
   final DateTime updatedAt;
   final DateTime? closedAt;
   final String? closedBy;
+
+  /// Stored photo references ("sb:<path>"), already marked up.
+  final List<String> photos;
 
   /// Whole days past the due date, or 0 when not overdue.
   int overdueDays([DateTime? now]) {
@@ -349,11 +358,20 @@ class Item {
         updatedAt: _ts(j['updated_at']) ?? DateTime.now(),
         closedAt: _ts(j['closed_at']),
         closedBy: j['closed_by'] as String?,
+        photos: _strings(j['photos']),
       );
 }
 
 class Comment {
-  Comment({required this.id, required this.itemId, required this.authorId, required this.body, required this.createdAt, this.editedAt});
+  Comment({
+    required this.id,
+    required this.itemId,
+    required this.authorId,
+    required this.body,
+    required this.createdAt,
+    this.editedAt,
+    this.photos = const [],
+  });
 
   final String id;
   final String itemId;
@@ -362,6 +380,9 @@ class Comment {
   final DateTime createdAt;
   final DateTime? editedAt;
 
+  /// Photo references added to the reply.
+  final List<String> photos;
+
   factory Comment.fromJson(Map<String, dynamic> j) => Comment(
         id: j['id'] as String,
         itemId: j['item_id'] as String,
@@ -369,6 +390,7 @@ class Comment {
         body: (j['body'] ?? '') as String,
         createdAt: _ts(j['created_at']) ?? DateTime.now(),
         editedAt: _ts(j['edited_at']),
+        photos: _strings(j['attachments']),
       );
 }
 

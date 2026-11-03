@@ -69,7 +69,7 @@ class _Sidebar extends StatelessWidget {
               height: 42,
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Row(children: [
-                Icon(icon, size: 20, color: on ? const Color(0xFFD19A6C) : c.sideMuted),
+                Icon(icon, size: 20, color: on ? c.sideAccent : c.sideMuted),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(label,
@@ -80,12 +80,12 @@ class _Sidebar extends StatelessWidget {
                     constraints: const BoxConstraints(minWidth: 22),
                     padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1),
                     decoration: BoxDecoration(
-                      color: hot ? brandCopper : Colors.white.withValues(alpha: 0.08),
+                      color: hot ? c.accent : c.sideInk.withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(999),
                     ),
                     child: Text('$badge',
                         textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: hot ? const Color(0xFF1A1512) : c.sideMuted)),
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: hot ? c.accentInk : c.sideMuted)),
                   ),
               ]),
             ),
@@ -94,22 +94,23 @@ class _Sidebar extends StatelessWidget {
       );
     }
 
+    final scale = s.appearance.textScale;
     return Container(
-      width: 248,
+      width: 248 * (scale > 1 ? scale.clamp(1.0, 1.25).toDouble() : 1.0),
       color: c.side,
       padding: const EdgeInsets.fromLTRB(14, 20, 14, 12),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const BrandLogo(height: 18, onDark: true),
+            BrandLogo(height: 18, onDark: c.sideIsDark),
             const SizedBox(height: 8),
-            const AppWordmark(size: 15, color: Color(0xFFD19A6C)),
+            AppWordmark(size: 15, color: c.sideAccent),
           ]),
         ),
         const SizedBox(height: 18),
         Material(
-          color: Colors.white.withValues(alpha: 0.04),
+          color: c.sideInk.withValues(alpha: 0.04),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: BorderSide(color: c.sideLine)),
           child: InkWell(
             borderRadius: BorderRadius.circular(10),
@@ -121,11 +122,11 @@ class _Sidebar extends StatelessWidget {
                   width: 38,
                   height: 34,
                   alignment: Alignment.center,
-                  decoration: BoxDecoration(color: brandCopper, borderRadius: BorderRadius.circular(8)),
+                  decoration: BoxDecoration(color: c.accent, borderRadius: BorderRadius.circular(8)),
                   child: FittedBox(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: Text(p.code, style: condensed(15, color: const Color(0xFF1A1512))),
+                      child: Text(p.code, style: condensed(15, color: c.accentInk)),
                     ),
                   ),
                 ),
@@ -162,9 +163,9 @@ class _Sidebar extends StatelessWidget {
               width: 36,
               height: 36,
               alignment: Alignment.center,
-              decoration: const BoxDecoration(color: Color(0xFF3A2B1F), shape: BoxShape.circle),
+              decoration: BoxDecoration(color: c.sideSel.withValues(alpha: 0.3), shape: BoxShape.circle),
               child: Text(s.me?.initials ?? '?',
-                  style: const TextStyle(color: Color(0xFFE3B48C), fontWeight: FontWeight.w700, fontSize: 13)),
+                  style: TextStyle(color: c.sideAccent, fontWeight: FontWeight.w700, fontSize: 13)),
             ),
             const SizedBox(width: 10),
             Expanded(

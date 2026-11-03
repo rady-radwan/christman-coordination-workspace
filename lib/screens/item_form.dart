@@ -6,6 +6,7 @@ import '../state/app_state.dart';
 import '../theme.dart';
 import '../util/dates.dart';
 import '../widgets/common.dart';
+import '../widgets/photos.dart';
 
 /// New item, or edit an existing one (coordinators and the admin only).
 Future<void> openItemForm(BuildContext context, {Item? item}) => openForm<void>(
@@ -44,7 +45,9 @@ class _ItemFormState extends State<_ItemForm> {
   late DateTime? _due = it == null ? _defaultDue() : it!.dueDate;
   late bool _needsRfi = it?.needsRfi ?? false;
   late final _rfi = TextEditingController(text: it?.rfiNumber ?? '');
+  late List<FormPhoto> _photos = [...?it?.photos.map(FormPhoto.stored)];
   bool _busy = false;
+  String _busyText = '';
   String? _error;
 
   DateTime _defaultDue() {
@@ -73,6 +76,8 @@ class _ItemFormState extends State<_ItemForm> {
       _busy = true;
       _error = null;
     });
+    final fresh = _photos.where((p) => p.bytes != null).length;
+    if (fresh > 0) setState(() => _busyText = 'Uploading $fresh ${fresh == 1 ? 'photo' : 'photos'}…');
     final trades = {..._trades, if (_bic != null) _bic!}.toList();
     final values = <String, dynamic>{
       'title': _title.text.trim(),
@@ -98,7 +103,7 @@ class _ItemFormState extends State<_ItemForm> {
         values['type_id'] = _typeId;
         // Given to a trade straight away = that trade is reviewing it.
         values['status'] = _bic == null ? ItemStatus.open.db : ItemStatus.inReview.db;
-        final created = await s.createItem(values);
+        final created = await s.createItem(values, photos: [for (final p in _photos) p.bytes!]);
         if (mounted) {
           Navigator.of(context).pop();
           showInfo(context, 'Created ${created.number}');
@@ -108,6 +113,12 @@ class _ItemFormState extends State<_ItemForm> {
         if (it!.status == ItemStatus.open && it!.bicTradeId == null && _bic != null) {
           values['status'] = ItemStatus.inReview.db;
         }
+        // Keep stored photos in order; upload new or re-marked ones.
+        final refs = <String>[];
+        for (final p in _photos) {
+          refs.add(p.ref ?? (await s.uploadItemPhotos(it!, [p.bytes!])).first);
+        }
+        values['photos'] = refs;
         await s.updateItem(it!, values);
         if (mounted) {
           Navigator.of(context).pop();
@@ -117,7 +128,12 @@ class _ItemFormState extends State<_ItemForm> {
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _busyText = '';
+        });
+      }
     }
   }
 
@@ -182,10 +198,21 @@ class _ItemFormState extends State<_ItemForm> {
             labeled('Description', _text(_desc, hint: 'What is the conflict and what do you need?', lines: 3)),
             const SizedBox(height: 14),
             const FieldLabel('Priority'),
-            Wrap(spacing: 6, runSpacing: 6, children: [
+            Wrap(spacing: 8, runSpacing: 8, children: [
               for (final pr in Priority.values)
-                CwChip(label: pr.label, selected: _priority == pr, onTap: () => setState(() => _priority = pr)),
+                PriorityChip(priority: pr, selected: _priority == pr, onTap: () => setState(() => _priority = pr)),
             ]),
+            const SizedBox(height: 18),
+            SectionLabel(_photos.isEmpty ? 'Photos and screenshots' : 'Photos and screenshots · ${_photos.length}'),
+            const SizedBox(height: 4),
+            Text('Each photo opens in the markup editor: arrows, boxes, clouds, text. Click a photo to mark it up again.',
+                style: TextStyle(fontSize: 13, color: c.muted)),
+            const SizedBox(height: 10),
+            if (_photos.isNotEmpty) ...[
+              PhotoStrip(photos: _photos, onChanged: (v) => setState(() => _photos = v)),
+              const SizedBox(height: 10),
+            ],
+            AddPhotoButtons(onAdded: (list) => setState(() => _photos = [..._photos, ...list.map(FormPhoto.fresh)])),
             const SizedBox(height: 18),
             const SectionLabel('Location'),
             const SizedBox(height: 4),
@@ -286,7 +313,7 @@ class _ItemFormState extends State<_ItemForm> {
               child: Text(_error!, style: TextStyle(color: c.urgentText, fontWeight: FontWeight.w600)),
             ),
           Row(children: [
-            const Spacer(),
+            Expanded(child: Text(_busyText, style: TextStyle(fontSize: 13, color: c.muted))),
             TextButton(onPressed: _busy ? null : () => Navigator.of(context).pop(), child: const Text('Cancel')),
             const SizedBox(width: 10),
             FilledButton(

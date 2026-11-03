@@ -1,23 +1,28 @@
-import 'package:flutter/material.dart';
+import 'dart:convert';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Choices saved on this device: theme, font and the last project opened.
+import '../theme.dart';
+
+/// Things kept on this device. The look (theme, font, text size) is saved on the
+/// person's account too; this copy is used on the sign-in screen and while starting up.
 class Settings {
   Settings._(this._prefs);
   final SharedPreferences _prefs;
 
   static Future<Settings> load() async => Settings._(await SharedPreferences.getInstance());
 
-  ThemeMode get themeMode => switch (_prefs.getString('theme')) {
-        'light' => ThemeMode.light,
-        'dark' => ThemeMode.dark,
-        _ => ThemeMode.system,
-      };
-  Future<void> setThemeMode(ThemeMode m) => _prefs.setString('theme', m.name);
+  Appearance get appearance {
+    final raw = _prefs.getString('appearance');
+    if (raw == null) return const Appearance();
+    try {
+      return Appearance.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+    } catch (_) {
+      return const Appearance();
+    }
+  }
 
-  /// Font family chosen in Settings; empty means the built-in Barlow.
-  String get fontChoice => _prefs.getString('font') ?? '';
-  Future<void> setFontChoice(String family) => _prefs.setString('font', family);
+  Future<void> setAppearance(Appearance a) => _prefs.setString('appearance', jsonEncode(a.toJson()));
 
   String? get lastProjectId => _prefs.getString('last_project');
   Future<void> setLastProjectId(String id) => _prefs.setString('last_project', id);

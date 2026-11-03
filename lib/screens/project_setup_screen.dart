@@ -32,11 +32,11 @@ Future<void> showProjectPicker(BuildContext context) async {
                       width: 52,
                       height: 36,
                       alignment: Alignment.center,
-                      decoration: BoxDecoration(color: brandCopper, borderRadius: BorderRadius.circular(8)),
+                      decoration: BoxDecoration(color: c.accent, borderRadius: BorderRadius.circular(8)),
                       child: FittedBox(
                         child: Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 4),
-                          child: Text(p.code, style: condensed(15, color: const Color(0xFF1A1512))),
+                          child: Text(p.code, style: condensed(15, color: c.accentInk)),
                         ),
                       ),
                     ),
