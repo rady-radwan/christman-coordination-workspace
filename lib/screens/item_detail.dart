@@ -133,7 +133,7 @@ class _ItemDetailState extends State<ItemDetail> {
               Expanded(
                 child: Text.rich(TextSpan(style: TextStyle(color: c.urgentText, fontSize: 14), children: [
                   TextSpan(text: overdueText(item.overdueDays()), style: const TextStyle(fontWeight: FontWeight.w800, letterSpacing: 0.4)),
-                  TextSpan(text: ' — response was due ${weekdayDate(item.dueDate!)}. ${s.bicLabel(item.bicTradeId)} must act.'),
+                  TextSpan(text: ' — response was due ${weekdayDate(item.dueDate!)}. ${s.bicNames(item.bicTradeIds)} must act.'),
                 ])),
               ),
             ]),
@@ -254,9 +254,7 @@ class _ItemDetailState extends State<ItemDetail> {
       for (final m in _comments) {
         entries.add((m.createdAt, _CommentBubble(comment: m, onChanged: _load)));
       }
-      for (final e in _events.where((e) => e.kind == 'ball' || e.kind == 'status')) {
-        entries.add((e.createdAt, _EventLine(event: e)));
-      }
+      // Discussion shows replies only; status and ball changes stay in History.
       entries.sort((a, b) => a.$1.compareTo(b.$1));
     }
 
@@ -434,7 +432,7 @@ class _ActionBar extends StatelessWidget {
         onPressed: () async {
           final r = await showDialog<_PassResult>(context: context, builder: (_) => _PassBallDialog(item: item));
           if (r != null) {
-            await act(() => s.passBall(item, r.tradeId, r.note), done: 'Ball passed to ${s.bicName(r.tradeId)}');
+            await act(() => s.passBall(item, r.tradeIds, r.note), done: 'Ball now with ${s.bicNames(r.tradeIds)}');
           }
         },
         icon: const Icon(Icons.east, size: 18),
@@ -508,11 +506,14 @@ class _ActionBar extends StatelessWidget {
 }
 
 class _PassResult {
-  _PassResult(this.tradeId, this.note);
-  final String? tradeId;
+  _PassResult(this.tradeIds, this.note);
+
+  /// Who holds the ball afterwards; empty = the Christman coordinator.
+  final List<String> tradeIds;
   final String note;
 }
 
+/// Choose one or more trades to hold the ball (or hand it back to the coordinator).
 class _PassBallDialog extends StatefulWidget {
   const _PassBallDialog({required this.item});
   final Item item;
@@ -522,9 +523,17 @@ class _PassBallDialog extends StatefulWidget {
 }
 
 class _PassBallDialogState extends State<_PassBallDialog> {
-  static const _vdc = '__vdc__';
-  String? _target;
+  late final Set<String> _picked;
   final _note = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    final s = context.read<AppState>();
+    final item = widget.item;
+    // Coordinators start from the current holders; a trade starts from the others who hold it.
+    _picked = s.myRole.isCoord ? {...item.bicTradeIds} : {...item.bicTradeIds.where((id) => id != s.myTradeId)};
+  }
 
   @override
   void dispose() {
@@ -537,30 +546,60 @@ class _PassBallDialogState extends State<_PassBallDialog> {
     final s = context.watch<AppState>();
     final c = CwColors.of(context);
     final item = widget.item;
-    // Coordinators can pass to any trade; a trade only to the other trades on this item.
-    final trades = s.myRole.isCoord ? s.trades : s.trades.where((t) => item.tradeIds.contains(t.id) && t.id != s.myTradeId).toList();
-    final options = <(String, String, String)>[
-      if (item.bicTradeId != null) (_vdc, 'Christman VDC', 'Back to the coordinator'),
-      ...trades.where((t) => t.id != item.bicTradeId).map((t) => (t.id, t.name, t.company.isEmpty ? t.code : t.company)),
-    ];
+    final coord = s.myRole.isCoord;
+    // Coordinators can choose any trade; a trade only the trades on this item.
+    final trades = coord ? s.trades : s.trades.where((t) => item.tradeIds.contains(t.id) && t.id != s.myTradeId).toList();
+    // A trade can't take the ball away from the other trades that hold it.
+    bool locked(String id) => !coord && item.bicTradeIds.contains(id) && id != s.myTradeId;
+    final result = _picked.toList();
+    final same = Set.of(result).containsAll(item.bicTradeIds) && item.bicTradeIds.toSet().containsAll(result);
+
     return AlertDialog(
       title: Text('Pass the ball on ${item.number}'),
       content: SizedBox(
-        width: 460,
+        width: 480,
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('Now with: ${s.bicLabel(item.bicTradeId)}', style: TextStyle(color: c.muted)),
-          const SizedBox(height: 10),
+          Text('Now with: ${s.bicNames(item.bicTradeIds)}', style: TextStyle(color: c.muted)),
+          const SizedBox(height: 4),
+          Text('Tick every trade that must act. Leave all unticked to send it back to Christman VDC.',
+              style: TextStyle(fontSize: 13, color: c.muted)),
+          const SizedBox(height: 8),
+          Row(children: [
+            TextButton(
+              onPressed: () => setState(() {
+                for (final t in trades) {
+                  _picked.add(t.id);
+                }
+              }),
+              child: const Text('Select all'),
+            ),
+            TextButton(
+              onPressed: () => setState(() => _picked.removeWhere((id) => !locked(id))),
+              child: const Text('Clear'),
+            ),
+          ]),
           ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 300),
+            constraints: const BoxConstraints(maxHeight: 320),
             child: SingleChildScrollView(
               child: Column(children: [
-                for (final o in options)
-                  RadioListTile<String>(
-                    value: o.$1,
-                    groupValue: _target,
-                    onChanged: (v) => setState(() => _target = v),
-                    title: Text(o.$2, style: const TextStyle(fontWeight: FontWeight.w600)),
-                    subtitle: Text(o.$3),
+                for (final t in trades)
+                  CheckboxListTile(
+                    value: _picked.contains(t.id),
+                    onChanged: locked(t.id)
+                        ? null
+                        : (v) => setState(() {
+                              if (v == true) {
+                                _picked.add(t.id);
+                              } else {
+                                _picked.remove(t.id);
+                              }
+                            }),
+                    controlAffinity: ListTileControlAffinity.leading,
+                    title: Text(t.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                    subtitle: Text([
+                      t.company.isEmpty ? t.code : t.company,
+                      if (item.bicTradeIds.contains(t.id)) 'has the ball now',
+                    ].join(' · ')),
                     dense: true,
                     contentPadding: EdgeInsets.zero,
                   ),
@@ -568,20 +607,25 @@ class _PassBallDialogState extends State<_PassBallDialog> {
             ),
           ),
           const SizedBox(height: 8),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(color: c.accentSoft, borderRadius: BorderRadius.circular(8)),
+            child: Text('Ball goes to: ${s.bicNames(result)}', style: TextStyle(fontWeight: FontWeight.w700, color: c.ink)),
+          ),
+          const SizedBox(height: 10),
           TextField(controller: _note, minLines: 2, maxLines: 4, decoration: const InputDecoration(hintText: 'What should they do? (optional)')),
-          if (!s.myRole.isCoord && options.isEmpty)
+          if (!coord && trades.isEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 8),
-              child: Text('No other trade is on this item. Ask the coordinator to add one.', style: TextStyle(color: c.muted)),
+              child: Text('No other trade is on this item, so the ball can only go back to Christman VDC.', style: TextStyle(color: c.muted)),
             ),
         ]),
       ),
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
         FilledButton(
-          onPressed: _target == null
-              ? null
-              : () => Navigator.pop(context, _PassResult(_target == _vdc ? null : _target, _note.text)),
+          onPressed: same ? null : () => Navigator.pop(context, _PassResult(result, _note.text)),
           child: const Text('Pass Ball'),
         ),
       ],
@@ -599,8 +643,8 @@ class _Facts extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = context.watch<AppState>();
     final c = CwColors.of(context);
-    final bic = s.tradeById(item.bicTradeId);
-    final ballPath = events.where((e) => e.kind == 'ball').map((e) => e.toValue.split(' · ').first).toList();
+    final bic = s.tradesIn(item.bicTradeIds);
+    final ballPath = events.where((e) => e.kind == 'ball').map((e) => e.toValue).toList();
     final type = s.typeById(item.typeId);
 
     Widget fact(String k, String v) => Padding(
@@ -631,12 +675,20 @@ class _Facts extends StatelessWidget {
               Text('BALL IN COURT', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 0.8, color: c.accentText)),
             ]),
             const SizedBox(height: 6),
-            Text(bic?.name ?? 'Christman VDC', style: condensed(24, color: c.ink)),
-            Text(
-              [if ((bic?.company ?? '').isNotEmpty) bic!.company, if (bic == null) 'Coordinator', 'since ${shortDate(item.bicSince)}']
-                  .join(' · '),
-              style: TextStyle(fontSize: 14, color: c.ink2),
-            ),
+            if (bic.isEmpty) ...[
+              Text('Christman VDC', style: condensed(24, color: c.ink)),
+              Text('Coordinator · since ${shortDate(item.bicSince)}', style: TextStyle(fontSize: 14, color: c.ink2)),
+            ] else ...[
+              for (final t in bic)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 2),
+                  child: Text.rich(TextSpan(children: [
+                    TextSpan(text: t.name, style: condensed(bic.length > 1 ? 20 : 24, color: c.ink)),
+                    if (t.company.isNotEmpty) TextSpan(text: '  ${t.company}', style: TextStyle(fontSize: 13, color: c.ink2)),
+                  ])),
+                ),
+              Text('since ${shortDate(item.bicSince)}', style: TextStyle(fontSize: 13, color: c.ink2)),
+            ],
             if (ballPath.length > 1) ...[
               const SizedBox(height: 6),
               Text(ballPath.join('  →  '), style: TextStyle(fontSize: 12, color: c.muted)),
@@ -667,7 +719,7 @@ class _Facts extends StatelessWidget {
           else
             Wrap(spacing: 6, runSpacing: 6, children: [
               for (final id in item.tradeIds)
-                if (s.tradeById(id) != null) Tag(s.tradeById(id)!.label, strong: id == item.bicTradeId),
+                if (s.tradeById(id) != null) Tag(s.tradeById(id)!.label, strong: item.bicTradeIds.contains(id)),
             ]),
         ]),
       ),

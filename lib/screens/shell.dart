@@ -8,6 +8,8 @@ import '../widgets/common.dart';
 import 'item_detail.dart';
 import 'item_form.dart';
 import 'items_screen.dart';
+import 'meetings_screen.dart';
+import 'schedule_screen.dart';
 import 'notifications_screen.dart';
 import 'project_setup_screen.dart';
 import 'settings_screen.dart';
@@ -32,10 +34,12 @@ class _WideShell extends StatelessWidget {
     final c = CwColors.of(context);
     final body = switch (s.section) {
       Section.ballInCourt || Section.allItems => const _ItemsWorkspace(),
+      Section.meetings => const MeetingsScreen(),
+      Section.schedule => const ScheduleScreen(),
       Section.notifications => const NotificationsScreen(),
       Section.team => const TeamScreen(),
       Section.setup => const ProjectSetupScreen(),
-      Section.settings => const SettingsScreen(),
+      Section.settings || Section.more => const SettingsScreen(),
     };
     return Scaffold(
       backgroundColor: c.bg,
@@ -149,6 +153,8 @@ class _Sidebar extends StatelessWidget {
         if (s.myRole != Role.viewer)
           item(Section.ballInCourt, Icons.adjust, 'My Ball in Court', badge: s.ballInCourtItems.length, hot: true),
         item(Section.allItems, Icons.format_list_bulleted, 'All Items', badge: s.openCount),
+        item(Section.meetings, Icons.groups_2_outlined, 'Meetings', badge: s.meetings.where((m) => m.isUpcoming).length),
+        item(Section.schedule, Icons.view_timeline_outlined, 'Schedule'),
         item(Section.notifications, Icons.notifications_none, 'Notifications', badge: s.unreadCount, hot: true),
         item(Section.team, Icons.groups_outlined, 'Team', badge: s.isAdmin ? s.pendingPeople.length + s.invites.where((i) => i.status == 'suggested').length : 0, hot: true),
         if (s.isAdmin) item(Section.setup, Icons.tune, 'Project Setup'),
@@ -245,13 +251,15 @@ class _TopBar extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(24, 12, 20, 12),
       decoration: BoxDecoration(color: c.surface, border: Border(bottom: BorderSide(color: c.line))),
       child: Row(children: [
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-            Text(s.project?.name ?? '', style: TextStyle(fontSize: 12, color: c.muted)),
-            Text(title, style: condensed(26, color: c.ink)),
-          ]),
-        ),
-        SizedBox(width: 340, child: const SearchBox()),
+        Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+          Text(s.project?.name ?? '', style: TextStyle(fontSize: 12, color: c.muted)),
+          Text(title, style: condensed(26, color: c.ink)),
+        ]),
+        const SizedBox(width: 20),
+        // Coordination week, current work, next sign-off, next meeting.
+        const Expanded(child: ProjectStatusStrip(compact: true)),
+        const SizedBox(width: 12),
+        SizedBox(width: 300, child: const SearchBox()),
         const SizedBox(width: 10),
         IconButton(
           tooltip: 'Refresh',
@@ -304,20 +312,27 @@ class _BellButton extends StatelessWidget {
 class _PhoneShell extends StatelessWidget {
   const _PhoneShell();
 
-  static const _tabs = [Section.ballInCourt, Section.allItems, Section.notifications, Section.team, Section.settings];
+  static const _tabs = [Section.ballInCourt, Section.allItems, Section.meetings, Section.notifications, Section.more];
+
+  /// Pages reached from "More".
+  static const _morePages = [Section.schedule, Section.team, Section.setup, Section.settings, Section.more];
 
   @override
   Widget build(BuildContext context) {
     final s = context.watch<AppState>();
     final c = CwColors.of(context);
     var index = _tabs.indexOf(s.section);
-    if (index < 0) index = s.section == Section.setup ? 4 : 1;
-    final body = switch (_tabs[index]) {
+    if (index < 0) index = _morePages.contains(s.section) ? 4 : 1;
+    final Widget body = switch (s.section) {
       Section.ballInCourt => const _PhoneItems(ballInCourt: true),
       Section.allItems => const _PhoneItems(ballInCourt: false),
+      Section.meetings => const MeetingsScreen(),
       Section.notifications => const NotificationsScreen(),
-      Section.team => const TeamScreen(),
-      _ => s.section == Section.setup ? const ProjectSetupScreen() : const SettingsScreen(),
+      Section.schedule => const _BackToMore(child: ScheduleScreen()),
+      Section.team => const _BackToMore(child: TeamScreen()),
+      Section.setup => const _BackToMore(child: ProjectSetupScreen()),
+      Section.settings => const _BackToMore(child: SettingsScreen()),
+      Section.more => const _MorePage(),
     };
     return Scaffold(
       backgroundColor: c.bg,
@@ -340,16 +355,76 @@ class _PhoneShell extends StatelessWidget {
             label: 'My Ball',
           ),
           const NavigationDestination(icon: Icon(Icons.format_list_bulleted), label: 'Items'),
+          const NavigationDestination(icon: Icon(Icons.groups_2_outlined), label: 'Meetings'),
           NavigationDestination(
             icon: Badge(isLabelVisible: s.unreadCount > 0, label: Text('${s.unreadCount}'), child: const Icon(Icons.notifications_none)),
             label: 'Alerts',
           ),
-          const NavigationDestination(icon: Icon(Icons.groups_outlined), label: 'Team'),
           const NavigationDestination(icon: Icon(Icons.more_horiz), label: 'More'),
         ],
       ),
     );
   }
+}
+
+/// Phone "More" tab: Schedule, Team, Project Setup, Settings.
+class _MorePage extends StatelessWidget {
+  const _MorePage();
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.watch<AppState>();
+    final c = CwColors.of(context);
+    Widget tile(Section to, IconData icon, String title, String sub, {int badge = 0}) => Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Material(
+            color: c.surface,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: c.line)),
+            child: ListTile(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              leading: Icon(icon, color: c.accentText),
+              title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+              subtitle: Text(sub),
+              trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                if (badge > 0) Badge(label: Text('$badge')),
+                const Icon(Icons.chevron_right),
+              ]),
+              onTap: () => s.open(to),
+            ),
+          ),
+        );
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 40),
+      children: [
+        Text('More', style: condensed(28, color: c.ink)),
+        const SizedBox(height: 12),
+        tile(Section.schedule, Icons.view_timeline_outlined, 'Schedule', 'Coordination dates, sign-offs, model due dates'),
+        tile(Section.team, Icons.groups_outlined, 'Team', 'People on ${s.project?.code ?? 'this project'}',
+            badge: s.isAdmin ? s.pendingPeople.length + s.invites.where((i) => i.status == 'suggested').length : 0),
+        if (s.isAdmin) tile(Section.setup, Icons.tune, 'Project Setup', 'Trades, item types, levels, dates'),
+        tile(Section.settings, Icons.settings_outlined, 'Settings', 'Appearance, font, text size, account'),
+      ],
+    );
+  }
+}
+
+/// A page opened from "More", with a way back.
+class _BackToMore extends StatelessWidget {
+  const _BackToMore({required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Column(children: [
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: () => context.read<AppState>().open(Section.more),
+            icon: const Icon(Icons.chevron_left),
+            label: const Text('More'),
+          ),
+        ),
+        Expanded(child: child),
+      ]);
 }
 
 class _PhoneItems extends StatelessWidget {
@@ -397,6 +472,8 @@ class _PhoneItems extends StatelessWidget {
               ),
             ),
           ),
+          const SizedBox(height: 8),
+          const ProjectStatusStrip(compact: true),
         ]),
       ),
       Expanded(

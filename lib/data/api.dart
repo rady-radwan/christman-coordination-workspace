@@ -343,6 +343,43 @@ class Api {
         await _mustChange(_db.from('item_comments').delete().eq('id', id).select());
       });
 
+  // ------------------------------------------------------------------ meetings
+
+  Future<List<Meeting>> meetings(String projectId) => guard(() async {
+        final rows = await _db.from('meetings').select().eq('project_id', projectId).order('starts_at', ascending: false);
+        return rows.map(Meeting.fromJson).toList();
+      });
+
+  Future<Meeting> saveMeeting({String? id, required Map<String, dynamic> values}) => guard(() async {
+        final rows = id == null
+            ? await _db.from('meetings').insert(values).select()
+            : await _mustChange(_db.from('meetings').update(values).eq('id', id).select());
+        return Meeting.fromJson(rows.first);
+      });
+
+  Future<void> deleteMeeting(String id) => guard(() async {
+        await _mustChange(_db.from('meetings').delete().eq('id', id).select());
+      });
+
+  // ------------------------------------------------------------------ schedule
+
+  Future<List<ScheduleTask>> schedule(String projectId) => guard(() async {
+        final rows = await _db.from('schedule_tasks').select().eq('project_id', projectId).order('start_date').order('sort');
+        return rows.map(ScheduleTask.fromJson).toList();
+      });
+
+  Future<void> saveTask({String? id, required Map<String, dynamic> values}) => guard(() async {
+        if (id == null) {
+          await _db.from('schedule_tasks').insert(values);
+        } else {
+          await _mustChange(_db.from('schedule_tasks').update(values).eq('id', id).select());
+        }
+      });
+
+  Future<void> deleteTask(String id) => guard(() async {
+        await _mustChange(_db.from('schedule_tasks').delete().eq('id', id).select());
+      });
+
   // ------------------------------------------------------------------ photos
 
   /// Uploads one JPEG photo and returns its reference ("sb:<path>").

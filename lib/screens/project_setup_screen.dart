@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../models.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
+import '../util/dates.dart';
 import '../widgets/common.dart';
 import 'notifications_screen.dart';
 
@@ -212,6 +213,8 @@ class _ProjectDetailsState extends State<_ProjectDetails> {
   late final _levels = TextEditingController(text: p.levels.join(', '));
   late final _zones = TextEditingController(text: p.zones.join(', '));
   late int _dueDays = p.defaultDueDays;
+  late DateTime? _coordStart = p.coordinationStart;
+  late DateTime? _coordEnd = p.coordinationEnd;
   late bool _archived = p.archived;
   bool _busy = false;
 
@@ -243,6 +246,8 @@ class _ProjectDetailsState extends State<_ProjectDetails> {
         'levels': _list(_levels),
         'zones': _list(_zones),
         'default_due_days': _dueDays,
+        'coordination_start': _coordStart == null ? null : dateToDb(_coordStart!),
+        'coordination_end': _coordEnd == null ? null : dateToDb(_coordEnd!),
         'archived': _archived,
       });
       if (mounted) showInfo(context, 'Project saved');
@@ -276,6 +281,28 @@ class _ProjectDetailsState extends State<_ProjectDetails> {
         field('Levels', _levels, hint: 'e.g. Level 1, Level 2, Level 3, Roof', note: 'used in drop-downs and the By Area view'),
         const SizedBox(height: 10),
         field('Zones / areas', _zones, hint: 'e.g. Zone A, Zone B, Corridor 3B'),
+        const SizedBox(height: 14),
+        const FieldLabel('Coordination period', hint: 'used for "Coordination week 6 of 20" in the top bar'),
+        Wrap(spacing: 10, runSpacing: 10, children: [
+          for (final (label, value, setter) in [
+            ('Start', _coordStart, (DateTime? d) => setState(() => _coordStart = d)),
+            ('End', _coordEnd, (DateTime? d) => setState(() => _coordEnd = d)),
+          ])
+            OutlinedButton.icon(
+              onPressed: () async {
+                final now = DateTime.now();
+                final d = await showDatePicker(
+                  context: context,
+                  initialDate: value ?? now,
+                  firstDate: DateTime(now.year - 5),
+                  lastDate: DateTime(now.year + 6),
+                );
+                if (d != null) setter(d);
+              },
+              icon: const Icon(Icons.event_outlined, size: 18),
+              label: Text('$label: ${value == null ? 'not set' : weekdayDate(value)}'),
+            ),
+        ]),
         const SizedBox(height: 14),
         Wrap(spacing: 20, runSpacing: 10, crossAxisAlignment: WrapCrossAlignment.center, children: [
           Row(mainAxisSize: MainAxisSize.min, children: [

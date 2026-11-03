@@ -11,7 +11,7 @@ Item _item({String status = 'open', String? due}) => Item.fromJson({
       'status': status,
       'priority': 'urgent',
       'trade_ids': ['a', 'b'],
-      'bic_trade_id': 'a',
+      'bic_trade_ids': ['a'],
       'bic_since': '2026-10-28T12:00:00Z',
       'due_date': due,
       'created_by': 'u1',

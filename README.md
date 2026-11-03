@@ -22,11 +22,11 @@ All of these rules, plus the automatic item numbering (`NMC-CL-001`), live in th
 ## Stages
 
 1. Accounts, projects, trades and items — version 0.1
-2. **Photos with markup, priority colors, themes, font and text size per person** ← version 0.2; still to come: voice messages, PDF attachments, in-app update alert
-3. Clash import, area sign-off matrix, model submission tracker
-4. Meetings, dashboard, reports and email alerts
-5. Android release
-6. iOS
+2. Photos with markup, priority colors, themes, font and text size per person — version 0.2
+3. **Ball with several trades, coordination meetings with PDF minutes, coordination schedule, project status bar** ← version 0.3
+   Still to come: voice messages, PDF attachments, clash import, sign-off matrix, model tracker, dashboard, reports, email alerts
+4. Android release
+5. iOS
 
 ## Builds
 

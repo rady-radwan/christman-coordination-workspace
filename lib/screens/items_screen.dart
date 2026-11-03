@@ -6,6 +6,7 @@ import '../state/app_state.dart';
 import '../theme.dart';
 import '../util/dates.dart';
 import '../widgets/common.dart';
+import '../widgets/photos.dart';
 
 /// Search by number, title, clash ID or grid.
 class SearchBox extends StatefulWidget {
@@ -370,7 +371,7 @@ class ItemCard extends StatelessWidget {
     final s = context.watch<AppState>();
     final c = CwColors.of(context);
     final type = s.typeById(item.typeId);
-    final bic = s.tradeById(item.bicTradeId);
+    final bic = s.tradesIn(item.bicTradeIds);
     final closed = !item.status.isActive;
     // Open items get a light tint of their priority color; closed ones stay plain.
     final look = priorityLook(item.priority, c);
@@ -390,40 +391,46 @@ class ItemCard extends StatelessWidget {
             child: Padding(
               padding: EdgeInsets.all(selected ? 11 : 12),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Row(children: [
+                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   ItemNumber(item.number),
                   const SizedBox(width: 8),
                   PriorityBadge(item.priority),
-                  const Spacer(),
-                  Flexible(child: StatusBadge(item.status, short: true)),
+                  const SizedBox(width: 8),
+                  // The full status always shows; long ones wrap onto two lines.
+                  Expanded(child: Align(alignment: Alignment.topRight, child: StatusBadge(item.status, short: true))),
                 ]),
                 const SizedBox(height: 6),
-                Text(item.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: c.ink, height: 1.3)),
-                const SizedBox(height: 4),
-                Text(
-                  [type?.name ?? '', item.locationText].where((x) => x.isNotEmpty).join('  ·  '),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 13, color: c.muted),
-                ),
+                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(item.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: c.ink, height: 1.3)),
+                      const SizedBox(height: 4),
+                      Text(
+                        [type?.name ?? '', item.locationText].where((x) => x.isNotEmpty).join('  ·  '),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 13, color: c.muted),
+                      ),
+                    ]),
+                  ),
+                  if (item.photos.isNotEmpty) ...[
+                    const SizedBox(width: 10),
+                    _Thumb(item: item),
+                  ],
+                ]),
                 const SizedBox(height: 6),
                 Row(children: [
-                  if (item.photos.isNotEmpty) ...[
-                    Icon(Icons.photo_camera_outlined, size: 15, color: c.muted),
-                    const SizedBox(width: 3),
-                    Text('${item.photos.length}', style: TextStyle(fontSize: 13, color: c.muted)),
-                    const SizedBox(width: 10),
-                  ],
                   Icon(Icons.adjust, size: 15, color: c.ink2),
                   const SizedBox(width: 5),
                   Flexible(
                     child: Text.rich(
                       TextSpan(children: [
-                        TextSpan(text: bic?.name ?? 'Christman VDC', style: TextStyle(fontWeight: FontWeight.w600, color: c.ink2)),
-                        if ((bic?.company ?? '').isNotEmpty) TextSpan(text: '  ${bic!.company}', style: TextStyle(color: c.muted)),
+                        TextSpan(text: s.bicNames(item.bicTradeIds), style: TextStyle(fontWeight: FontWeight.w600, color: c.ink2)),
+                        if (bic.length == 1 && bic.first.company.isNotEmpty)
+                          TextSpan(text: '  ${bic.first.company}', style: TextStyle(color: c.muted)),
                       ]),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -437,6 +444,37 @@ class ItemCard extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// First photo of the item, with the number of photos when there are more.
+class _Thumb extends StatelessWidget {
+  const _Thumb({required this.item});
+  final Item item;
+
+  @override
+  Widget build(BuildContext context) {
+    final n = item.photos.length;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: SizedBox(
+        width: 84,
+        height: 62,
+        child: Stack(fit: StackFit.expand, children: [
+          RefImage(item.photos.first),
+          if (n > 1)
+            Positioned(
+              right: 4,
+              bottom: 4,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                decoration: BoxDecoration(color: const Color(0xD91A1A1A), borderRadius: BorderRadius.circular(5)),
+                child: Text('+${n - 1}', style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
+              ),
+            ),
+        ]),
       ),
     );
   }

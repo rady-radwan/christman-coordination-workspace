@@ -9,6 +9,7 @@ Already installed on the project. To set up a fresh project, run these files in 
 
 1. `supabase/schema.sql` — tables, numbering, permission rules
 2. `supabase/update-2-photos-and-preferences.sql` — photos (private `files` storage) and each person's look
+3. `supabase/update-3-ball-meetings-schedule.sql` — ball with several trades, meetings, schedule, coordination dates
 
 ## 2. Sign-in email (6-digit code)
 

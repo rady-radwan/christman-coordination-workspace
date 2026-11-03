@@ -149,6 +149,8 @@ class Project {
     this.zones = const [],
     this.defaultDueDays = 3,
     this.archived = false,
+    this.coordinationStart,
+    this.coordinationEnd,
   });
 
   final String id;
@@ -161,6 +163,10 @@ class Project {
   final int defaultDueDays;
   final bool archived;
 
+  /// First and last day of MEP coordination (for "Coordination week 6 of 20").
+  final DateTime? coordinationStart;
+  final DateTime? coordinationEnd;
+
   factory Project.fromJson(Map<String, dynamic> j) => Project(
         id: j['id'] as String,
         name: (j['name'] ?? '') as String,
@@ -171,6 +177,8 @@ class Project {
         zones: _strings(j['zones']),
         defaultDueDays: (j['default_due_days'] ?? 3) as int,
         archived: (j['archived'] ?? false) as bool,
+        coordinationStart: _date(j['coordination_start']),
+        coordinationEnd: _date(j['coordination_end']),
       );
 }
 
@@ -253,7 +261,7 @@ class Item {
     this.revitIds = '',
     this.sheet = '',
     this.tradeIds = const [],
-    this.bicTradeId,
+    this.bicTradeIds = const [],
     required this.bicSince,
     this.dueDate,
     this.needsRfi = false,
@@ -285,8 +293,10 @@ class Item {
   final String sheet;
   final List<String> tradeIds;
 
-  /// Trade that must act now; null means the ball is with the Christman coordinator.
-  final String? bicTradeId;
+  /// Trades that must act now; empty means the ball is with the Christman coordinator.
+  final List<String> bicTradeIds;
+
+  bool get ballWithCoordinator => bicTradeIds.isEmpty;
   final DateTime bicSince;
   final DateTime? dueDate;
   final bool needsRfi;
@@ -348,7 +358,7 @@ class Item {
         revitIds: (j['revit_ids'] ?? '') as String,
         sheet: (j['sheet'] ?? '') as String,
         tradeIds: _strings(j['trade_ids']),
-        bicTradeId: j['bic_trade_id'] as String?,
+        bicTradeIds: _strings(j['bic_trade_ids']),
         bicSince: _ts(j['bic_since']) ?? DateTime.now(),
         dueDate: _date(j['due_date']),
         needsRfi: (j['needs_rfi'] ?? false) as bool,
@@ -534,5 +544,204 @@ class Invite {
         status: (j['status'] ?? '') as String,
         suggestedBy: j['suggested_by'] as String?,
         createdAt: _ts(j['created_at']) ?? DateTime.now(),
+      );
+}
+
+// ===================================================================== meetings
+
+class Attendee {
+  Attendee({required this.name, this.company = '', this.role = '', this.present = true, this.userId});
+  String name;
+  String company;
+  String role;
+  bool present;
+  String? userId;
+
+  Map<String, dynamic> toJson() =>
+      {'name': name, 'company': company, 'role': role, 'present': present, if (userId != null) 'user_id': userId};
+
+  factory Attendee.fromJson(Map<String, dynamic> j) => Attendee(
+        name: (j['name'] ?? '') as String,
+        company: (j['company'] ?? '') as String,
+        role: (j['role'] ?? '') as String,
+        present: (j['present'] ?? true) as bool,
+        userId: j['user_id'] as String?,
+      );
+}
+
+/// An item discussed in a meeting, with what was said about it.
+/// Number, title, status and ball are kept as they were at the meeting.
+class MeetingItem {
+  MeetingItem({
+    required this.itemId,
+    required this.number,
+    required this.title,
+    this.status = '',
+    this.priority = '',
+    this.ball = '',
+    this.note = '',
+  });
+  String itemId;
+  String number;
+  String title;
+  String status;
+  String priority;
+  String ball;
+  String note;
+
+  Map<String, dynamic> toJson() =>
+      {'id': itemId, 'number': number, 'title': title, 'status': status, 'priority': priority, 'ball': ball, 'note': note};
+
+  factory MeetingItem.fromJson(Map<String, dynamic> j) => MeetingItem(
+        itemId: (j['id'] ?? '') as String,
+        number: (j['number'] ?? '') as String,
+        title: (j['title'] ?? '') as String,
+        status: (j['status'] ?? '') as String,
+        priority: (j['priority'] ?? '') as String,
+        ball: (j['ball'] ?? '') as String,
+        note: (j['note'] ?? '') as String,
+      );
+}
+
+class ActionItem {
+  ActionItem({required this.text, this.owner = '', this.due, this.done = false});
+  String text;
+  String owner;
+  DateTime? due;
+  bool done;
+
+  Map<String, dynamic> toJson() => {'text': text, 'owner': owner, 'due': due == null ? null : dateToDb(due!), 'done': done};
+
+  factory ActionItem.fromJson(Map<String, dynamic> j) => ActionItem(
+        text: (j['text'] ?? '') as String,
+        owner: (j['owner'] ?? '') as String,
+        due: _date(j['due']),
+        done: (j['done'] ?? false) as bool,
+      );
+}
+
+List<Map<String, dynamic>> _maps(dynamic v) =>
+    v == null ? const [] : (v as List).whereType<Map>().map((m) => m.cast<String, dynamic>()).toList();
+
+class Meeting {
+  Meeting({
+    required this.id,
+    required this.projectId,
+    required this.number,
+    required this.title,
+    required this.startsAt,
+    this.durationMin = 60,
+    this.location = '',
+    this.attendees = const [],
+    this.summary = '',
+    this.items = const [],
+    this.actions = const [],
+    this.nextMeeting,
+    this.createdBy,
+    required this.updatedAt,
+  });
+
+  final String id;
+  final String projectId;
+  final int number;
+  final String title;
+  final DateTime startsAt;
+  final int durationMin;
+  final String location;
+  final List<Attendee> attendees;
+  final String summary;
+  final List<MeetingItem> items;
+  final List<ActionItem> actions;
+  final DateTime? nextMeeting;
+  final String? createdBy;
+  final DateTime updatedAt;
+
+  DateTime get endsAt => startsAt.add(Duration(minutes: durationMin));
+  bool get isUpcoming => endsAt.isAfter(DateTime.now());
+  bool get hasMinutes => summary.trim().isNotEmpty || items.any((i) => i.note.trim().isNotEmpty) || actions.isNotEmpty;
+  int get openActions => actions.where((a) => !a.done).length;
+
+  factory Meeting.fromJson(Map<String, dynamic> j) => Meeting(
+        id: j['id'] as String,
+        projectId: j['project_id'] as String,
+        number: (j['number'] ?? 0) as int,
+        title: (j['title'] ?? '') as String,
+        startsAt: _ts(j['starts_at']) ?? DateTime.now(),
+        durationMin: (j['duration_min'] ?? 60) as int,
+        location: (j['location'] ?? '') as String,
+        attendees: _maps(j['attendees']).map(Attendee.fromJson).toList(),
+        summary: (j['summary'] ?? '') as String,
+        items: _maps(j['items']).map(MeetingItem.fromJson).toList(),
+        actions: _maps(j['actions']).map(ActionItem.fromJson).toList(),
+        nextMeeting: _ts(j['next_meeting']),
+        createdBy: j['created_by'] as String?,
+        updatedAt: _ts(j['updated_at']) ?? DateTime.now(),
+      );
+}
+
+// ===================================================================== schedule
+
+enum TaskKind {
+  coordination('coordination', 'Coordination', Icons.layers_outlined),
+  signOff('sign_off', 'Sign-off', Icons.verified_outlined),
+  modelDue('model_due', 'Model due', Icons.view_in_ar_outlined),
+  milestone('milestone', 'Milestone', Icons.flag_outlined),
+  other('other', 'Other', Icons.event_note_outlined);
+
+  const TaskKind(this.db, this.label, this.icon);
+  final String db;
+  final String label;
+  final IconData icon;
+
+  static TaskKind fromDb(String? s) => values.firstWhere((k) => k.db == s, orElse: () => other);
+}
+
+class ScheduleTask {
+  ScheduleTask({
+    required this.id,
+    required this.projectId,
+    required this.name,
+    this.kind = TaskKind.coordination,
+    this.area = '',
+    required this.start,
+    required this.end,
+    this.tradeIds = const [],
+    this.percent = 0,
+    this.notes = '',
+    this.sort = 0,
+  });
+
+  final String id;
+  final String projectId;
+  final String name;
+  final TaskKind kind;
+  final String area;
+  final DateTime start;
+  final DateTime end;
+  final List<String> tradeIds;
+  final int percent;
+  final String notes;
+  final int sort;
+
+  /// Days in the task, counting both ends.
+  int get days => end.difference(start).inDays + 1;
+  bool get isPoint => days == 1;
+
+  bool isDone([DateTime? now]) => percent >= 100;
+  bool isCurrent(DateTime today) => !today.isBefore(start) && !today.isAfter(end) && percent < 100;
+  bool isLate(DateTime today) => today.isAfter(end) && percent < 100;
+
+  factory ScheduleTask.fromJson(Map<String, dynamic> j) => ScheduleTask(
+        id: j['id'] as String,
+        projectId: j['project_id'] as String,
+        name: (j['name'] ?? '') as String,
+        kind: TaskKind.fromDb(j['kind'] as String?),
+        area: (j['area'] ?? '') as String,
+        start: _date(j['start_date']) ?? DateTime.now(),
+        end: _date(j['end_date']) ?? DateTime.now(),
+        tradeIds: _strings(j['trade_ids']),
+        percent: (j['percent'] ?? 0) as int,
+        notes: (j['notes'] ?? '') as String,
+        sort: (j['sort'] ?? 0) as int,
       );
 }

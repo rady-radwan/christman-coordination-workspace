@@ -128,12 +128,15 @@ class StatusBadge extends StatelessWidget {
       message: status.meaning,
       child: Container(
         padding: EdgeInsets.symmetric(horizontal: large ? 10 : 9, vertical: large ? 4 : 3),
-        decoration: BoxDecoration(color: c.statusBg(status), borderRadius: BorderRadius.circular(999)),
+        decoration: BoxDecoration(color: c.statusBg(status), borderRadius: BorderRadius.circular(10)),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
           StatusDot(fg),
           const SizedBox(width: 6),
-          Text(short ? status.shortLabel : status.label,
-              style: TextStyle(fontSize: large ? 13 : 12, fontWeight: FontWeight.w700, color: fg)),
+          Flexible(
+            child: Text(short ? status.shortLabel : status.label,
+                softWrap: true,
+                style: TextStyle(fontSize: large ? 13 : 12, fontWeight: FontWeight.w700, color: fg, height: 1.2)),
+          ),
         ]),
       ),
     );

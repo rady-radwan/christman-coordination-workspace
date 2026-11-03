@@ -11,7 +11,8 @@ import '../util/dates.dart';
 import 'settings.dart';
 
 /// The parts of the app reached from the sidebar (Windows) or the bottom tabs (phone).
-enum Section { ballInCourt, allItems, notifications, team, setup, settings }
+/// [more] is the phone's "More" menu.
+enum Section { ballInCourt, allItems, meetings, schedule, notifications, team, setup, settings, more }
 
 /// How the All Items list is grouped.
 enum ListMode { list, byDate, byArea }
@@ -61,7 +62,10 @@ class AppState extends ChangeNotifier {
   List<Item> items = [];
   List<AppNotification> notifications = [];
   List<Invite> invites = [];
+  List<Meeting> meetings = [];
+  List<ScheduleTask> schedule = [];
   bool loadingProject = false;
+  String? selectedMeetingId;
 
   /// Goes up whenever discussion or history changes, so an open item reloads its thread.
   int threadVersion = 0;
@@ -143,7 +147,10 @@ class AppState extends ChangeNotifier {
     items = [];
     notifications = [];
     invites = [];
+    meetings = [];
+    schedule = [];
     selectedItemId = null;
+    selectedMeetingId = null;
     section = Section.allItems;
     notifyListeners();
   }
@@ -208,6 +215,7 @@ class AppState extends ChangeNotifier {
     project = p;
     if (changed) {
       selectedItemId = null;
+      selectedMeetingId = null;
       _resetFilters();
     }
     await settings.setLastProjectId(p.id);
@@ -241,6 +249,8 @@ class AppState extends ChangeNotifier {
       api.profiles(),
       api.items(p.id),
       api.notifications(),
+      api.meetings(p.id),
+      api.schedule(p.id),
     ]);
     trades = results[0] as List<Trade>;
     types = results[1] as List<ItemType>;
@@ -248,6 +258,8 @@ class AppState extends ChangeNotifier {
     people = {for (final x in results[3] as List<Profile>) x.id: x};
     items = results[4] as List<Item>;
     notifications = results[5] as List<AppNotification>;
+    meetings = results[6] as List<Meeting>;
+    schedule = results[7] as List<ScheduleTask>;
     await _loadInvites();
   }
 
@@ -313,6 +325,8 @@ class AppState extends ChangeNotifier {
       if (t.contains('notifications')) notifications = await api.notifications();
       if (t.contains('project_trades') && p != null) trades = await api.trades(p.id);
       if (t.contains('item_types') && p != null) types = await api.types(p.id);
+      if (t.contains('meetings') && p != null) meetings = await api.meetings(p.id);
+      if (t.contains('schedule_tasks') && p != null) schedule = await api.schedule(p.id);
       if (t.contains('profiles')) {
         people = {for (final x in await api.profiles()) x.id: x};
         final mine = await api.loadMe();
@@ -373,13 +387,13 @@ class AppState extends ChangeNotifier {
       myRole.isTrade &&
       item.status.canBeOverdue &&
       myTradeId != null &&
-      (item.tradeIds.contains(myTradeId) || item.bicTradeId == myTradeId);
+      (item.tradeIds.contains(myTradeId) || item.bicTradeIds.contains(myTradeId));
 
   /// Can this person pass the ball on [item]?
   bool canPassBall(Item item) {
     if (!item.status.isActive) return false;
     if (myRole.isCoord) return true;
-    return myRole.isTrade && myTradeId != null && item.bicTradeId == myTradeId;
+    return myRole.isTrade && myTradeId != null && item.bicTradeIds.contains(myTradeId);
   }
 
   // ------------------------------------------------------------------ lookups
@@ -391,8 +405,20 @@ class AppState extends ChangeNotifier {
   Item? get selectedItem => itemById(selectedItemId);
 
   /// "Mechanical · Hart Mechanical", or "Christman VDC" for the coordinator.
-  String bicLabel(String? tradeId) => tradeById(tradeId)?.label ?? 'Christman VDC';
-  String bicName(String? tradeId) => tradeById(tradeId)?.name ?? 'Christman VDC';
+  /// Trades in the order set up for the project.
+  List<Trade> tradesIn(Iterable<String> ids) => trades.where((t) => ids.contains(t.id)).toList();
+
+  /// "Mechanical + Plumbing", or "Christman VDC" for the coordinator.
+  String bicNames(List<String> ids) {
+    final list = tradesIn(ids);
+    return list.isEmpty ? 'Christman VDC' : list.map((t) => t.name).join(' + ');
+  }
+
+  /// With company names: "Mechanical · Hart Mechanical + Plumbing · Northline".
+  String bicLabels(List<String> ids) {
+    final list = tradesIn(ids);
+    return list.isEmpty ? 'Christman VDC' : list.map((t) => t.label).join(' + ');
+  }
 
   Member? memberOf(String userId) => members.where((m) => m.userId == userId).firstOrNull;
 
@@ -423,9 +449,9 @@ class AppState extends ChangeNotifier {
     final r = myRole;
     Iterable<Item> list;
     if (r.isTrade) {
-      list = items.where((i) => i.bicTradeId != null && i.bicTradeId == myTradeId);
+      list = items.where((i) => myTradeId != null && i.bicTradeIds.contains(myTradeId));
     } else if (r.isCoord) {
-      list = items.where((i) => i.bicTradeId == null);
+      list = items.where((i) => i.ballWithCoordinator);
     } else {
       list = const [];
     }
@@ -447,7 +473,7 @@ class AppState extends ChangeNotifier {
     final groups = DateGroups(now);
     final weekEnd = groups.thisWeekStart.add(const Duration(days: 7));
     final list = items.where((i) {
-      if (filterTradeId != null && !i.tradeIds.contains(filterTradeId) && i.bicTradeId != filterTradeId) return false;
+      if (filterTradeId != null && !i.tradeIds.contains(filterTradeId) && !i.bicTradeIds.contains(filterTradeId)) return false;
       if (filterTypeId != null && i.typeId != filterTypeId) return false;
       if (filterStatus == 'active' && !i.status.isActive) return false;
       if (filterStatus != 'active' && filterStatus != 'all' && i.status.db != filterStatus) return false;
@@ -594,12 +620,14 @@ class AppState extends ChangeNotifier {
     await updateItem(item, {'status': ItemStatus.modelUpdated.db});
   }
 
-  /// Moves the ball to a trade (or back to the coordinator when [tradeId] is null).
-  Future<void> passBall(Item item, String? tradeId, String note) async {
+  /// Sets who holds the ball: one or more trades, or the coordinator when [tradeIds] is empty.
+  Future<void> passBall(Item item, List<String> tradeIds, String note) async {
     if (note.trim().isNotEmpty) await api.addComment(item, note);
-    final values = <String, dynamic>{'bic_trade_id': tradeId};
-    // Handing an open item to a trade means the trade is now reviewing it.
-    if (myRole.isCoord && tradeId != null && (item.status == ItemStatus.open || item.status == ItemStatus.responseSubmitted || item.status == ItemStatus.modelUpdated)) {
+    final values = <String, dynamic>{'bic_trade_ids': tradeIds};
+    // Handing an item to trades means they are now reviewing it.
+    if (myRole.isCoord &&
+        tradeIds.isNotEmpty &&
+        (item.status == ItemStatus.open || item.status == ItemStatus.responseSubmitted || item.status == ItemStatus.modelUpdated)) {
       values['status'] = ItemStatus.inReview.db;
     }
     await updateItem(item, values);
@@ -608,6 +636,95 @@ class AppState extends ChangeNotifier {
   Future<void> setStatus(Item item, ItemStatus status, String note) async {
     if (note.trim().isNotEmpty) await api.addComment(item, note);
     await updateItem(item, {'status': status.db});
+  }
+
+  // ------------------------------------------------------------------ meetings
+
+  Meeting? get selectedMeeting => meetings.where((m) => m.id == selectedMeetingId).firstOrNull;
+
+  void selectMeeting(String? id) {
+    selectedMeetingId = id;
+    notifyListeners();
+  }
+
+  Future<Meeting> saveMeeting(Meeting? existing, Map<String, dynamic> values) async {
+    final m = await api.saveMeeting(id: existing?.id, values: {...values, if (existing == null) 'project_id': project!.id});
+    meetings = await api.meetings(project!.id);
+    selectedMeetingId = m.id;
+    notifyListeners();
+    return m;
+  }
+
+  Future<void> deleteMeeting(Meeting m) async {
+    await api.deleteMeeting(m.id);
+    meetings.removeWhere((x) => x.id == m.id);
+    if (selectedMeetingId == m.id) selectedMeetingId = null;
+    notifyListeners();
+  }
+
+  Meeting? get nextMeeting {
+    final now = DateTime.now();
+    final upcoming = meetings.where((m) => m.endsAt.isAfter(now)).toList()..sort((a, b) => a.startsAt.compareTo(b.startsAt));
+    return upcoming.firstOrNull;
+  }
+
+  // ------------------------------------------------------------------ schedule
+
+  bool get canEditSchedule => myRole.isCoord;
+
+  Future<void> saveTask(ScheduleTask? existing, Map<String, dynamic> values) async {
+    await api.saveTask(id: existing?.id, values: {...values, if (existing == null) 'project_id': project!.id});
+    schedule = await api.schedule(project!.id);
+    notifyListeners();
+  }
+
+  Future<void> deleteTask(ScheduleTask t) async {
+    await api.deleteTask(t.id);
+    schedule.removeWhere((x) => x.id == t.id);
+    notifyListeners();
+  }
+
+  // ------------------------------------------------------------------ project status (top bar)
+
+  /// "Coordination week 6" — counted from the project's coordination start (or the first schedule task).
+  int? get coordinationWeek {
+    final start = project?.coordinationStart ?? (schedule.isEmpty ? null : schedule.map((t) => t.start).reduce((a, b) => a.isBefore(b) ? a : b));
+    if (start == null) return null;
+    final days = dayOnly(DateTime.now()).difference(start).inDays;
+    return days < 0 ? null : days ~/ 7 + 1;
+  }
+
+  /// Total coordination weeks, when an end date is known.
+  int? get coordinationWeeks {
+    final start = project?.coordinationStart ?? (schedule.isEmpty ? null : schedule.map((t) => t.start).reduce((a, b) => a.isBefore(b) ? a : b));
+    final end = project?.coordinationEnd ?? (schedule.isEmpty ? null : schedule.map((t) => t.end).reduce((a, b) => a.isAfter(b) ? a : b));
+    if (start == null || end == null || end.isBefore(start)) return null;
+    return end.difference(start).inDays ~/ 7 + 1;
+  }
+
+  /// Coordination work happening today.
+  List<ScheduleTask> get currentWork {
+    final today = dayOnly(DateTime.now());
+    return schedule.where((t) => t.kind == TaskKind.coordination && t.isCurrent(today)).toList()
+      ..sort((a, b) => a.end.compareTo(b.end));
+  }
+
+  /// The next sign-off (or milestone) that is not finished yet.
+  ScheduleTask? get nextSignOff {
+    final today = dayOnly(DateTime.now());
+    final list = schedule
+        .where((t) => (t.kind == TaskKind.signOff || t.kind == TaskKind.milestone) && !t.end.isBefore(today) && t.percent < 100)
+        .toList()
+      ..sort((a, b) => a.end.compareTo(b.end));
+    return list.firstOrNull;
+  }
+
+  /// The next model submission due date.
+  ScheduleTask? get nextModelDue {
+    final today = dayOnly(DateTime.now());
+    final list = schedule.where((t) => t.kind == TaskKind.modelDue && !t.end.isBefore(today) && t.percent < 100).toList()
+      ..sort((a, b) => a.end.compareTo(b.end));
+    return list.firstOrNull;
   }
 
   // ------------------------------------------------------------------ notifications

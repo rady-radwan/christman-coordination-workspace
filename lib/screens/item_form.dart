@@ -41,7 +41,7 @@ class _ItemFormState extends State<_ItemForm> {
   late final _revitIds = TextEditingController(text: it?.revitIds ?? '');
   late final _sheet = TextEditingController(text: it?.sheet ?? '');
   late final Set<String> _trades = {...?it?.tradeIds};
-  late String? _bic = it?.bicTradeId;
+  late final Set<String> _bic = {...?it?.bicTradeIds};
   late DateTime? _due = it == null ? _defaultDue() : it!.dueDate;
   late bool _needsRfi = it?.needsRfi ?? false;
   late final _rfi = TextEditingController(text: it?.rfiNumber ?? '');
@@ -78,7 +78,7 @@ class _ItemFormState extends State<_ItemForm> {
     });
     final fresh = _photos.where((p) => p.bytes != null).length;
     if (fresh > 0) setState(() => _busyText = 'Uploading $fresh ${fresh == 1 ? 'photo' : 'photos'}…');
-    final trades = {..._trades, if (_bic != null) _bic!}.toList();
+    final trades = {..._trades, ..._bic}.toList();
     final values = <String, dynamic>{
       'title': _title.text.trim(),
       'description': _desc.text.trim(),
@@ -93,7 +93,7 @@ class _ItemFormState extends State<_ItemForm> {
       'revit_ids': _revitIds.text.trim(),
       'sheet': _sheet.text.trim(),
       'trade_ids': trades,
-      'bic_trade_id': _bic,
+      'bic_trade_ids': _bic.toList(),
       'due_date': _due == null ? null : dateToDb(_due!),
       'needs_rfi': _needsRfi,
       'rfi_number': _needsRfi ? _rfi.text.trim() : '',
@@ -102,7 +102,7 @@ class _ItemFormState extends State<_ItemForm> {
       if (it == null) {
         values['type_id'] = _typeId;
         // Given to a trade straight away = that trade is reviewing it.
-        values['status'] = _bic == null ? ItemStatus.open.db : ItemStatus.inReview.db;
+        values['status'] = _bic.isEmpty ? ItemStatus.open.db : ItemStatus.inReview.db;
         final created = await s.createItem(values, photos: [for (final p in _photos) p.bytes!]);
         if (mounted) {
           Navigator.of(context).pop();
@@ -110,7 +110,7 @@ class _ItemFormState extends State<_ItemForm> {
         }
       } else {
         // Moving the ball from the coordinator to a trade on an open item starts the review.
-        if (it!.status == ItemStatus.open && it!.bicTradeId == null && _bic != null) {
+        if (it!.status == ItemStatus.open && it!.ballWithCoordinator && _bic.isNotEmpty) {
           values['status'] = ItemStatus.inReview.db;
         }
         // Keep stored photos in order; upload new or re-marked ones.
@@ -242,26 +242,32 @@ class _ItemFormState extends State<_ItemForm> {
                   selected: _trades.contains(t.id),
                   onTap: () => setState(() {
                     if (!_trades.remove(t.id)) _trades.add(t.id);
-                    if (!_trades.contains(_bic)) _bic = null;
+                    _bic.removeWhere((id) => !_trades.contains(id));
                   }),
                 ),
             ]),
             const SizedBox(height: 12),
-            labeled(
-              'Ball in court',
-              DropdownButtonFormField<String?>(
-                initialValue: _bic,
-                items: [
-                  const DropdownMenuItem<String?>(value: null, child: Text('Christman VDC (coordinator)')),
-                  ...s.trades.map((t) => DropdownMenuItem<String?>(value: t.id, child: Text(t.label))),
-                ],
-                onChanged: (v) => setState(() {
-                  _bic = v;
-                  if (v != null) _trades.add(v);
-                }),
+            const FieldLabel('Ball in court', hint: 'who must act now — choose one or more trades'),
+            Wrap(spacing: 6, runSpacing: 6, children: [
+              CwChip(
+                label: 'Christman VDC (coordinator)',
+                icon: Icons.adjust,
+                selected: _bic.isEmpty,
+                onTap: () => setState(_bic.clear),
               ),
-              hint: 'who must act now',
-            ),
+              for (final t in s.trades)
+                CwChip(
+                  label: t.name,
+                  icon: _bic.contains(t.id) ? Icons.adjust : null,
+                  selected: _bic.contains(t.id),
+                  onTap: () => setState(() {
+                    if (!_bic.remove(t.id)) {
+                      _bic.add(t.id);
+                      _trades.add(t.id);
+                    }
+                  }),
+                ),
+            ]),
             const SizedBox(height: 18),
             const SectionLabel('Dates and RFI'),
             const SizedBox(height: 4),
