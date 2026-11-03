@@ -13,6 +13,7 @@ import '../util/pick_file.dart';
 import '../util/save_file.dart';
 import '../util/xlsx.dart';
 import '../widgets/common.dart';
+import '../widgets/excel_view.dart';
 import 'item_form.dart';
 import 'notifications_screen.dart';
 
@@ -284,6 +285,9 @@ class ClashReportView extends StatefulWidget {
 class _ClashReportViewState extends State<ClashReportView> {
   Future<(Uint8List, XlsxBook)>? _load;
   int _sheet = -1;
+  ClashTable? _table;
+  int _tableSheet = -1;
+  final Map<int, bool> _excelMode = {};
   String _search = '';
   String? _status;
 
@@ -418,8 +422,65 @@ class _ClashReportViewState extends State<ClashReportView> {
           return Column(children: [head, const Expanded(child: Center(child: CircularProgressIndicator()))]);
         }
 
-        if (_sheet < 0 || _sheet >= book.sheets.length) _sheet = bestSheetIndex(book);
-        final table = ClashTable.from(book.sheets[_sheet]);
+        if (_sheet < 0 || _sheet >= book.sheets.length) _sheet = book.activeSheet.clamp(0, book.sheets.length - 1);
+        final sheet = book.sheets[_sheet];
+        if (_tableSheet != _sheet || _table == null) {
+          _table = ClashTable.from(sheet);
+          _tableSheet = _sheet;
+        }
+        final table = _table!;
+        final excel = _excelMode[_sheet] ?? !table.isClashList;
+
+        final tabs = book.sheets.length < 2
+            ? const SizedBox.shrink()
+            : SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                padding: EdgeInsets.symmetric(horizontal: pad),
+                child: Row(children: [
+                  for (var i = 0; i < book.sheets.length; i++)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: ChoiceChip(
+                        avatar: Icon(i == _sheet ? Icons.grid_on : Icons.grid_view_outlined, size: 16),
+                        label: Text(book.sheets[i].name),
+                        selected: i == _sheet,
+                        onSelected: (_) => setState(() {
+                          _sheet = i;
+                          _status = null;
+                          _search = '';
+                        }),
+                      ),
+                    ),
+                ]),
+              );
+
+        final modeToggle = !table.isClashList
+            ? null
+            : SegmentedButton<bool>(
+                showSelectedIcon: false,
+                segments: const [
+                  ButtonSegment(value: false, icon: Icon(Icons.view_list_outlined, size: 18), label: Text('Clash list')),
+                  ButtonSegment(value: true, icon: Icon(Icons.grid_on, size: 18), label: Text('Excel view')),
+                ],
+                selected: {excel},
+                onSelectionChanged: (v) => setState(() => _excelMode[_sheet] = v.first),
+              );
+
+        if (excel) {
+          return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            head,
+            tabs,
+            if (modeToggle != null) Padding(padding: EdgeInsets.fromLTRB(pad, 8, pad, 0), child: Align(alignment: Alignment.centerLeft, child: modeToggle)),
+            const SizedBox(height: 10),
+            Expanded(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(pad, 0, pad, pad),
+                child: ExcelSheetView(key: ValueKey('sheet$_sheet'), book: book, sheet: sheet),
+              ),
+            ),
+          ]);
+        }
+
         final statusCol = table.statusColumn;
         final q = _search.trim().toLowerCase();
         final visible = <int>[
@@ -432,21 +493,16 @@ class _ClashReportViewState extends State<ClashReportView> {
 
         return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           head,
+          tabs,
+          const SizedBox(height: 8),
           Padding(
             padding: EdgeInsets.symmetric(horizontal: pad),
             child: Wrap(spacing: 10, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
-              if (book.sheets.length > 1)
-                DropdownButton<int>(
-                  value: _sheet,
-                  items: [for (var i = 0; i < book.sheets.length; i++) DropdownMenuItem(value: i, child: Text('Sheet: ${book.sheets[i].name}'))],
-                  onChanged: (v) => setState(() {
-                    _sheet = v ?? 0;
-                    _status = null;
-                  }),
-                ),
+              if (modeToggle != null) modeToggle,
               SizedBox(
                 width: 280,
                 child: TextField(
+                  key: ValueKey('search$_sheet'),
                   onChanged: (v) => setState(() => _search = v),
                   decoration: const InputDecoration(isDense: true, prefixIcon: Icon(Icons.search, size: 20), hintText: 'Search clash name, grid, ID…'),
                 ),
