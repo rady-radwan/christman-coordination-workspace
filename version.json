@@ -1,0 +1,14 @@
+{
+  "version": "0.5.0",
+  "notes": [
+    "Announcements: important news from the Christman VDC team, with a notification for everyone",
+    "BEP: the Project BEP File at the top, sections with tables, checklists, note boxes and pictures, Word import, \"Show more\" for long sections, and easy arranging",
+    "Clash Reports: summary sheets look like Excel, with the numbers calculated",
+    "Notifications: older ones are dimmed and can be deleted",
+    "New-version alert with a download button"
+  ],
+  "windows": "ChristmanCoordination-Setup-0.5.0.exe",
+  "android": "ChristmanCoordination-0.5.0-android.apk",
+  "android_older": "ChristmanCoordination-0.5.0-android-older-phones.apk",
+  "published": "2026-11-03T22:12:00.232926+00:00"
+}
