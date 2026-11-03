@@ -9,6 +9,8 @@ import 'item_detail.dart';
 import 'item_form.dart';
 import 'items_screen.dart';
 import 'meetings_screen.dart';
+import 'bep_screen.dart';
+import 'clash_reports_screen.dart';
 import 'schedule_screen.dart';
 import 'notifications_screen.dart';
 import 'project_setup_screen.dart';
@@ -36,6 +38,8 @@ class _WideShell extends StatelessWidget {
       Section.ballInCourt || Section.allItems => const _ItemsWorkspace(),
       Section.meetings => const MeetingsScreen(),
       Section.schedule => const ScheduleScreen(),
+      Section.bep => const BepScreen(),
+      Section.clashReports => const ClashReportsScreen(),
       Section.notifications => const NotificationsScreen(),
       Section.team => const TeamScreen(),
       Section.setup => const ProjectSetupScreen(),
@@ -155,6 +159,8 @@ class _Sidebar extends StatelessWidget {
         item(Section.allItems, Icons.format_list_bulleted, 'All Items', badge: s.openCount),
         item(Section.meetings, Icons.groups_2_outlined, 'Meetings', badge: s.meetings.where((m) => m.isUpcoming).length),
         item(Section.schedule, Icons.view_timeline_outlined, 'Schedule'),
+        item(Section.bep, Icons.menu_book_outlined, 'BEP'),
+        item(Section.clashReports, Icons.table_view_outlined, 'Clash Reports'),
         item(Section.notifications, Icons.notifications_none, 'Notifications', badge: s.unreadCount, hot: true),
         item(Section.team, Icons.groups_outlined, 'Team', badge: s.isAdmin ? s.pendingPeople.length + s.invites.where((i) => i.status == 'suggested').length : 0, hot: true),
         if (s.isAdmin) item(Section.setup, Icons.tune, 'Project Setup'),
@@ -315,7 +321,7 @@ class _PhoneShell extends StatelessWidget {
   static const _tabs = [Section.ballInCourt, Section.allItems, Section.meetings, Section.notifications, Section.more];
 
   /// Pages reached from "More".
-  static const _morePages = [Section.schedule, Section.team, Section.setup, Section.settings, Section.more];
+  static const _morePages = [Section.schedule, Section.bep, Section.clashReports, Section.team, Section.setup, Section.settings, Section.more];
 
   @override
   Widget build(BuildContext context) {
@@ -329,6 +335,8 @@ class _PhoneShell extends StatelessWidget {
       Section.meetings => const MeetingsScreen(),
       Section.notifications => const NotificationsScreen(),
       Section.schedule => const _BackToMore(child: ScheduleScreen()),
+      Section.bep => const _BackToMore(child: BepScreen()),
+      Section.clashReports => const _BackToMore(child: ClashReportsScreen()),
       Section.team => const _BackToMore(child: TeamScreen()),
       Section.setup => const _BackToMore(child: ProjectSetupScreen()),
       Section.settings => const _BackToMore(child: SettingsScreen()),
@@ -399,6 +407,8 @@ class _MorePage extends StatelessWidget {
         Text('More', style: condensed(28, color: c.ink)),
         const SizedBox(height: 12),
         tile(Section.schedule, Icons.view_timeline_outlined, 'Schedule', 'Coordination dates, sign-offs, model due dates'),
+        tile(Section.bep, Icons.menu_book_outlined, 'BEP', 'BIM Execution Plan: rules, naming, levels, files'),
+        tile(Section.clashReports, Icons.table_view_outlined, 'Clash Reports', 'Excel clash reports to view and download'),
         tile(Section.team, Icons.groups_outlined, 'Team', 'People on ${s.project?.code ?? 'this project'}',
             badge: s.isAdmin ? s.pendingPeople.length + s.invites.where((i) => i.status == 'suggested').length : 0),
         if (s.isAdmin) tile(Section.setup, Icons.tune, 'Project Setup', 'Trades, item types, levels, dates'),

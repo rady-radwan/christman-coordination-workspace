@@ -620,6 +620,22 @@ class ActionItem {
       );
 }
 
+/// One agenda topic: what, who leads it, how many minutes.
+class AgendaItem {
+  AgendaItem({required this.text, this.owner = '', this.minutes = 0});
+  String text;
+  String owner;
+  int minutes;
+
+  Map<String, dynamic> toJson() => {'text': text, 'owner': owner, 'minutes': minutes};
+
+  factory AgendaItem.fromJson(Map<String, dynamic> j) => AgendaItem(
+        text: (j['text'] ?? '') as String,
+        owner: (j['owner'] ?? '') as String,
+        minutes: (j['minutes'] as num?)?.toInt() ?? 0,
+      );
+}
+
 List<Map<String, dynamic>> _maps(dynamic v) =>
     v == null ? const [] : (v as List).whereType<Map>().map((m) => m.cast<String, dynamic>()).toList();
 
@@ -636,6 +652,8 @@ class Meeting {
     this.summary = '',
     this.items = const [],
     this.actions = const [],
+    this.agenda = const [],
+    this.prep = const [],
     this.nextMeeting,
     this.createdBy,
     required this.updatedAt,
@@ -652,6 +670,12 @@ class Meeting {
   final String summary;
   final List<MeetingItem> items;
   final List<ActionItem> actions;
+
+  /// Topics to cover, in order.
+  final List<AgendaItem> agenda;
+
+  /// What people must have done before they come.
+  final List<ActionItem> prep;
   final DateTime? nextMeeting;
   final String? createdBy;
   final DateTime updatedAt;
@@ -673,6 +697,8 @@ class Meeting {
         summary: (j['summary'] ?? '') as String,
         items: _maps(j['items']).map(MeetingItem.fromJson).toList(),
         actions: _maps(j['actions']).map(ActionItem.fromJson).toList(),
+        agenda: _maps(j['agenda']).map(AgendaItem.fromJson).toList(),
+        prep: _maps(j['prep']).map(ActionItem.fromJson).toList(),
         nextMeeting: _ts(j['next_meeting']),
         createdBy: j['created_by'] as String?,
         updatedAt: _ts(j['updated_at']) ?? DateTime.now(),
@@ -744,4 +770,130 @@ class ScheduleTask {
         notes: (j['notes'] ?? '') as String,
         sort: (j['sort'] ?? 0) as int,
       );
+}
+
+// ===================================================================== BEP
+
+class BepSection {
+  BepSection({required this.id, required this.projectId, required this.title, this.body = '', this.sort = 0, this.updatedBy, required this.updatedAt});
+
+  final String id;
+  final String projectId;
+  final String title;
+  final String body;
+  final int sort;
+  final String? updatedBy;
+  final DateTime updatedAt;
+
+  factory BepSection.fromJson(Map<String, dynamic> j) => BepSection(
+        id: j['id'] as String,
+        projectId: j['project_id'] as String,
+        title: (j['title'] ?? '') as String,
+        body: (j['body'] ?? '') as String,
+        sort: (j['sort'] ?? 0) as int,
+        updatedBy: j['updated_by'] as String?,
+        updatedAt: _ts(j['updated_at']) ?? DateTime.now(),
+      );
+}
+
+/// A file shared in the BEP (templates, BEP document, families…), for all trades or one trade.
+class BepFile {
+  BepFile({
+    required this.id,
+    required this.projectId,
+    required this.name,
+    this.description = '',
+    this.category = 'Document',
+    this.tradeId,
+    required this.path,
+    required this.fileName,
+    this.sizeBytes = 0,
+    this.uploadedBy,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String projectId;
+  final String name;
+  final String description;
+  final String category;
+  final String? tradeId;
+  final String path;
+  final String fileName;
+  final int sizeBytes;
+  final String? uploadedBy;
+  final DateTime createdAt;
+
+  static const categories = ['BEP document', 'Template', 'Shared model', 'Families / content', 'Standards', 'Other'];
+
+  factory BepFile.fromJson(Map<String, dynamic> j) => BepFile(
+        id: j['id'] as String,
+        projectId: j['project_id'] as String,
+        name: (j['name'] ?? '') as String,
+        description: (j['description'] ?? '') as String,
+        category: (j['category'] ?? 'Other') as String,
+        tradeId: j['trade_id'] as String?,
+        path: (j['path'] ?? '') as String,
+        fileName: (j['file_name'] ?? '') as String,
+        sizeBytes: (j['size_bytes'] as num?)?.toInt() ?? 0,
+        uploadedBy: j['uploaded_by'] as String?,
+        createdAt: _ts(j['created_at']) ?? DateTime.now(),
+      );
+}
+
+// ===================================================================== clash reports
+
+class ClashReport {
+  ClashReport({
+    required this.id,
+    required this.projectId,
+    required this.title,
+    required this.reportDate,
+    this.notes = '',
+    required this.path,
+    required this.fileName,
+    this.sizeBytes = 0,
+    this.summary = const {},
+    this.uploadedBy,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String projectId;
+  final String title;
+  final DateTime reportDate;
+  final String notes;
+  final String path;
+  final String fileName;
+  final int sizeBytes;
+
+  /// {rows: 120, statuses: {New: 40, Active: 60, ...}} worked out when it was uploaded.
+  final Map<String, dynamic> summary;
+  final String? uploadedBy;
+  final DateTime createdAt;
+
+  int get rowCount => (summary['rows'] as num?)?.toInt() ?? 0;
+  Map<String, int> get statuses =>
+      ((summary['statuses'] as Map?) ?? const {}).map((k, v) => MapEntry(k.toString(), (v as num).toInt()));
+
+  factory ClashReport.fromJson(Map<String, dynamic> j) => ClashReport(
+        id: j['id'] as String,
+        projectId: j['project_id'] as String,
+        title: (j['title'] ?? '') as String,
+        reportDate: _date(j['report_date']) ?? DateTime.now(),
+        notes: (j['notes'] ?? '') as String,
+        path: (j['path'] ?? '') as String,
+        fileName: (j['file_name'] ?? '') as String,
+        sizeBytes: (j['size_bytes'] as num?)?.toInt() ?? 0,
+        summary: (j['summary'] as Map?)?.cast<String, dynamic>() ?? const {},
+        uploadedBy: j['uploaded_by'] as String?,
+        createdAt: _ts(j['created_at']) ?? DateTime.now(),
+      );
+}
+
+/// "2.4 MB"
+String fileSizeText(int bytes) {
+  if (bytes < 1024) return '$bytes B';
+  if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(0)} KB';
+  return '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
 }

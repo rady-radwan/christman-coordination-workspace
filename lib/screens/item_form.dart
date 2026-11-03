@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -8,16 +10,41 @@ import '../util/dates.dart';
 import '../widgets/common.dart';
 import '../widgets/photos.dart';
 
+/// Starting values for a new item, e.g. from a row of a clash report.
+class ItemPrefill {
+  ItemPrefill({
+    this.typeCode,
+    this.title = '',
+    this.description = '',
+    this.level = '',
+    this.grid = '',
+    this.clashTest = '',
+    this.clashId = '',
+    this.viewpoint = '',
+    this.photos = const [],
+  });
+  final String? typeCode;
+  final String title;
+  final String description;
+  final String level;
+  final String grid;
+  final String clashTest;
+  final String clashId;
+  final String viewpoint;
+  final List<Uint8List> photos;
+}
+
 /// New item, or edit an existing one (coordinators and the admin only).
-Future<void> openItemForm(BuildContext context, {Item? item}) => openForm<void>(
+Future<void> openItemForm(BuildContext context, {Item? item, ItemPrefill? prefill}) => openForm<void>(
       context,
       title: item == null ? 'New coordination item' : 'Edit ${item.number}',
-      builder: (_) => _ItemForm(item: item),
+      builder: (_) => _ItemForm(item: item, prefill: prefill),
     );
 
 class _ItemForm extends StatefulWidget {
-  const _ItemForm({this.item});
+  const _ItemForm({this.item, this.prefill});
   final Item? item;
+  final ItemPrefill? prefill;
 
   @override
   State<_ItemForm> createState() => _ItemFormState();
@@ -26,18 +53,21 @@ class _ItemForm extends StatefulWidget {
 class _ItemFormState extends State<_ItemForm> {
   late final AppState s = context.read<AppState>();
   late final Item? it = widget.item;
+  late final ItemPrefill? pre = widget.item == null ? widget.prefill : null;
 
-  late String? _typeId = it?.typeId ?? s.types.where((t) => t.active).firstOrNull?.id;
-  late final _title = TextEditingController(text: it?.title ?? '');
-  late final _desc = TextEditingController(text: it?.description ?? '');
+  late String? _typeId = it?.typeId ??
+      s.types.where((t) => t.active && t.code == pre?.typeCode).firstOrNull?.id ??
+      s.types.where((t) => t.active).firstOrNull?.id;
+  late final _title = TextEditingController(text: it?.title ?? pre?.title ?? '');
+  late final _desc = TextEditingController(text: it?.description ?? pre?.description ?? '');
   late Priority _priority = it?.priority ?? Priority.medium;
   late final _building = TextEditingController(text: it?.building ?? (s.project!.buildings.length == 1 ? s.project!.buildings.first : ''));
-  late final _level = TextEditingController(text: it?.level ?? '');
+  late final _level = TextEditingController(text: it?.level ?? pre?.level ?? '');
   late final _zone = TextEditingController(text: it?.zone ?? '');
-  late final _grid = TextEditingController(text: it?.grid ?? '');
-  late final _clashTest = TextEditingController(text: it?.clashTest ?? '');
-  late final _clashId = TextEditingController(text: it?.clashId ?? '');
-  late final _viewpoint = TextEditingController(text: it?.viewpoint ?? '');
+  late final _grid = TextEditingController(text: it?.grid ?? pre?.grid ?? '');
+  late final _clashTest = TextEditingController(text: it?.clashTest ?? pre?.clashTest ?? '');
+  late final _clashId = TextEditingController(text: it?.clashId ?? pre?.clashId ?? '');
+  late final _viewpoint = TextEditingController(text: it?.viewpoint ?? pre?.viewpoint ?? '');
   late final _revitIds = TextEditingController(text: it?.revitIds ?? '');
   late final _sheet = TextEditingController(text: it?.sheet ?? '');
   late final Set<String> _trades = {...?it?.tradeIds};
@@ -45,7 +75,7 @@ class _ItemFormState extends State<_ItemForm> {
   late DateTime? _due = it == null ? _defaultDue() : it!.dueDate;
   late bool _needsRfi = it?.needsRfi ?? false;
   late final _rfi = TextEditingController(text: it?.rfiNumber ?? '');
-  late List<FormPhoto> _photos = [...?it?.photos.map(FormPhoto.stored)];
+  late List<FormPhoto> _photos = [...?it?.photos.map(FormPhoto.stored), ...?pre?.photos.map(FormPhoto.fresh)];
   bool _busy = false;
   String _busyText = '';
   String? _error;

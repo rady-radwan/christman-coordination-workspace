@@ -22,6 +22,13 @@ Meeting _meeting() => Meeting.fromJson({
         {'text': 'Upload revised mechanical model', 'owner': 'Mechanical', 'due': '2026-11-10', 'done': false},
         {'text': 'Confirm ceiling height with architect', 'owner': 'Christman VDC', 'due': null, 'done': true},
       ],
+      'agenda': [
+        {'text': 'Review open action items', 'owner': 'Christman VDC', 'minutes': 10},
+        {'text': 'Level 2 hospital clashes', 'owner': 'Mechanical', 'minutes': 30},
+      ],
+      'prep': [
+        {'text': 'Upload latest model', 'owner': 'All trades', 'due': '2026-11-11', 'done': false},
+      ],
       'next_meeting': '2026-11-12T16:00:00Z',
       'updated_at': '2026-11-05T18:00:00Z',
     });
@@ -37,6 +44,9 @@ void main() {
     expect(m.openActions, 1);
     expect(m.hasMinutes, isTrue);
     expect(m.endsAt.difference(m.startsAt).inMinutes, 90);
+    expect(m.agenda.length, 2);
+    expect(m.agenda.last.minutes, 30);
+    expect(m.prep.single.owner, 'All trades');
   });
 
   test('minutes PDF builds', () async {

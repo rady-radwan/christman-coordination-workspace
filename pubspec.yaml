@@ -1,7 +1,7 @@
 name: christman_coordination
 description: Christman Coordination Workspace - BIM/MEP coordination between the Christman VDC team and trade partners.
 publish_to: 'none'
-version: 0.3.0+3
+version: 0.4.0+4
 
 environment:
   sdk: '>=3.5.0 <4.0.0'
@@ -20,6 +20,8 @@ dependencies:
   share_plus: ^10.1.4
   path_provider: ^2.1.4
   url_launcher: ^6.3.1
+  archive: '>=3.6.1 <5.0.0'
+  xml: '>=6.3.0 <8.0.0'
 
 dev_dependencies:
   flutter_test:

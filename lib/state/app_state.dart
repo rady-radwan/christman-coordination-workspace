@@ -12,7 +12,7 @@ import 'settings.dart';
 
 /// The parts of the app reached from the sidebar (Windows) or the bottom tabs (phone).
 /// [more] is the phone's "More" menu.
-enum Section { ballInCourt, allItems, meetings, schedule, notifications, team, setup, settings, more }
+enum Section { ballInCourt, allItems, meetings, schedule, bep, clashReports, notifications, team, setup, settings, more }
 
 /// How the All Items list is grouped.
 enum ListMode { list, byDate, byArea }
@@ -64,6 +64,10 @@ class AppState extends ChangeNotifier {
   List<Invite> invites = [];
   List<Meeting> meetings = [];
   List<ScheduleTask> schedule = [];
+  List<BepSection> bepSections = [];
+  List<BepFile> bepFiles = [];
+  List<ClashReport> clashReports = [];
+  String? selectedReportId;
   bool loadingProject = false;
   String? selectedMeetingId;
 
@@ -149,6 +153,10 @@ class AppState extends ChangeNotifier {
     invites = [];
     meetings = [];
     schedule = [];
+    bepSections = [];
+    bepFiles = [];
+    clashReports = [];
+    selectedReportId = null;
     selectedItemId = null;
     selectedMeetingId = null;
     section = Section.allItems;
@@ -216,6 +224,7 @@ class AppState extends ChangeNotifier {
     if (changed) {
       selectedItemId = null;
       selectedMeetingId = null;
+      selectedReportId = null;
       _resetFilters();
     }
     await settings.setLastProjectId(p.id);
@@ -251,6 +260,9 @@ class AppState extends ChangeNotifier {
       api.notifications(),
       api.meetings(p.id),
       api.schedule(p.id),
+      api.bepSections(p.id),
+      api.bepFiles(p.id),
+      api.clashReports(p.id),
     ]);
     trades = results[0] as List<Trade>;
     types = results[1] as List<ItemType>;
@@ -260,6 +272,9 @@ class AppState extends ChangeNotifier {
     notifications = results[5] as List<AppNotification>;
     meetings = results[6] as List<Meeting>;
     schedule = results[7] as List<ScheduleTask>;
+    bepSections = results[8] as List<BepSection>;
+    bepFiles = results[9] as List<BepFile>;
+    clashReports = results[10] as List<ClashReport>;
     await _loadInvites();
   }
 
@@ -327,6 +342,9 @@ class AppState extends ChangeNotifier {
       if (t.contains('item_types') && p != null) types = await api.types(p.id);
       if (t.contains('meetings') && p != null) meetings = await api.meetings(p.id);
       if (t.contains('schedule_tasks') && p != null) schedule = await api.schedule(p.id);
+      if (t.contains('bep_sections') && p != null) bepSections = await api.bepSections(p.id);
+      if (t.contains('bep_files') && p != null) bepFiles = await api.bepFiles(p.id);
+      if (t.contains('clash_reports') && p != null) clashReports = await api.clashReports(p.id);
       if (t.contains('profiles')) {
         people = {for (final x in await api.profiles()) x.id: x};
         final mine = await api.loadMe();
@@ -670,7 +688,11 @@ class AppState extends ChangeNotifier {
 
   // ------------------------------------------------------------------ schedule
 
-  bool get canEditSchedule => myRole.isCoord;
+  /// Meetings, the schedule, the BEP and clash reports are changed by the admin only.
+  bool get canEditSchedule => isAdmin;
+  bool get canEditMeetings => isAdmin;
+  bool get canEditBep => isAdmin;
+  bool get canEditReports => isAdmin;
 
   Future<void> saveTask(ScheduleTask? existing, Map<String, dynamic> values) async {
     await api.saveTask(id: existing?.id, values: {...values, if (existing == null) 'project_id': project!.id});
@@ -681,6 +703,32 @@ class AppState extends ChangeNotifier {
   Future<void> deleteTask(ScheduleTask t) async {
     await api.deleteTask(t.id);
     schedule.removeWhere((x) => x.id == t.id);
+    notifyListeners();
+  }
+
+  // ------------------------------------------------------------------ BEP
+
+  Future<void> reloadBep() async {
+    final p = project;
+    if (p == null) return;
+    bepSections = await api.bepSections(p.id);
+    bepFiles = await api.bepFiles(p.id);
+    notifyListeners();
+  }
+
+  // ------------------------------------------------------------------ clash reports
+
+  ClashReport? get selectedReport => clashReports.where((r) => r.id == selectedReportId).firstOrNull;
+
+  void selectReport(String? id) {
+    selectedReportId = id;
+    notifyListeners();
+  }
+
+  Future<void> reloadReports() async {
+    final p = project;
+    if (p == null) return;
+    clashReports = await api.clashReports(p.id);
     notifyListeners();
   }
 

@@ -380,6 +380,110 @@ class Api {
         await _mustChange(_db.from('schedule_tasks').delete().eq('id', id).select());
       });
 
+  // ------------------------------------------------------------------ BEP
+
+  Future<List<BepSection>> bepSections(String projectId) => guard(() async {
+        final rows = await _db.from('bep_sections').select().eq('project_id', projectId).order('sort').order('created_at');
+        return rows.map(BepSection.fromJson).toList();
+      });
+
+  Future<void> saveBepSection({String? id, required Map<String, dynamic> values}) => guard(() async {
+        if (id == null) {
+          await _db.from('bep_sections').insert(values);
+        } else {
+          await _mustChange(_db.from('bep_sections').update(values).eq('id', id).select());
+        }
+      });
+
+  Future<void> deleteBepSection(String id) => guard(() async {
+        await _mustChange(_db.from('bep_sections').delete().eq('id', id).select());
+      });
+
+  Future<List<BepFile>> bepFiles(String projectId) => guard(() async {
+        final rows = await _db.from('bep_files').select().eq('project_id', projectId).order('created_at', ascending: false);
+        return rows.map(BepFile.fromJson).toList();
+      });
+
+  Future<void> saveBepFile({String? id, required Map<String, dynamic> values}) => guard(() async {
+        if (id == null) {
+          await _db.from('bep_files').insert(values);
+        } else {
+          await _mustChange(_db.from('bep_files').update(values).eq('id', id).select());
+        }
+      });
+
+  Future<void> deleteBepFile(BepFile f) => guard(() async {
+        await _mustChange(_db.from('bep_files').delete().eq('id', f.id).select());
+        await _db.storage.from(_bucket).remove([f.path]);
+      });
+
+  // ------------------------------------------------------------------ clash reports
+
+  Future<List<ClashReport>> clashReports(String projectId) => guard(() async {
+        final rows = await _db.from('clash_reports').select().eq('project_id', projectId).order('report_date', ascending: false).order('created_at', ascending: false);
+        return rows.map(ClashReport.fromJson).toList();
+      });
+
+  Future<void> saveClashReport({String? id, required Map<String, dynamic> values}) => guard(() async {
+        if (id == null) {
+          await _db.from('clash_reports').insert(values);
+        } else {
+          await _mustChange(_db.from('clash_reports').update(values).eq('id', id).select());
+        }
+      });
+
+  Future<void> deleteClashReport(ClashReport r) => guard(() async {
+        await _mustChange(_db.from('clash_reports').delete().eq('id', r.id).select());
+        await _db.storage.from(_bucket).remove([r.path]);
+      });
+
+  // ------------------------------------------------------------------ files
+
+  /// Largest file the server takes (Supabase free plan: 50 MB per file).
+  static const maxFileBytes = 50 * 1024 * 1024;
+
+  /// Uploads any file under <project>/<folder>/ and returns its storage path.
+  Future<String> uploadFile(String projectId, String folder, Uint8List bytes, String fileName) => guard(() async {
+        if (bytes.length > maxFileBytes) {
+          throw AppException('That file is ${fileSizeText(bytes.length)}. Files can be up to ${fileSizeText(maxFileBytes)}.');
+        }
+        final clean = fileName.replaceAll(RegExp(r'[^A-Za-z0-9._-]+'), '_');
+        final path = '$projectId/$folder/${_uuid.v4().substring(0, 8)}-$clean';
+        await _db.storage.from(_bucket).uploadBinary(
+              path,
+              bytes,
+              fileOptions: FileOptions(contentType: mimeFor(fileName)),
+            );
+        return path;
+      });
+
+  final Map<String, Uint8List> _fileCache = {};
+
+  /// Downloads a stored file (kept in memory for this session).
+  Future<Uint8List> fileBytes(String path) => guard(() async {
+        final cached = _fileCache[path];
+        if (cached != null) return cached;
+        final b = await _db.storage.from(_bucket).download(path);
+        _fileCache[path] = b;
+        return b;
+      });
+
+  static String mimeFor(String fileName) {
+    final ext = fileName.contains('.') ? fileName.split('.').last.toLowerCase() : '';
+    return switch (ext) {
+      'pdf' => 'application/pdf',
+      'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'xls' => 'application/vnd.ms-excel',
+      'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'csv' => 'text/csv',
+      'txt' => 'text/plain',
+      'png' => 'image/png',
+      'jpg' || 'jpeg' => 'image/jpeg',
+      'zip' => 'application/zip',
+      _ => 'application/octet-stream',
+    };
+  }
+
   // ------------------------------------------------------------------ photos
 
   /// Uploads one JPEG photo and returns its reference ("sb:<path>").

@@ -76,9 +76,13 @@ Future<Uint8List> buildMinutesPdf({
       );
 
   final present = m.attendees.where((a) => a.present).length;
+  // An upcoming meeting with no minutes yet prints as the agenda.
+  final agendaOnly = !m.hasMinutes && m.isUpcoming;
+  final docTitle = agendaOnly ? 'COORDINATION MEETING AGENDA' : 'COORDINATION MEETING MINUTES';
+  final totalMin = m.agenda.fold<int>(0, (sum, a) => sum + a.minutes);
 
   final doc = pw.Document(
-    title: 'Meeting ${m.number} minutes - ${project.name}',
+    title: 'Meeting ${m.number} ${agendaOnly ? 'agenda' : 'minutes'} - ${project.name}',
     author: 'The Christman Company',
     creator: 'Christman Coordination Workspace',
   );
@@ -93,7 +97,7 @@ Future<Uint8List> buildMinutesPdf({
         pw.Image(logo, height: 26),
         pw.Spacer(),
         pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.end, children: [
-          pw.Text('COORDINATION MEETING MINUTES', style: pw.TextStyle(font: cond, fontSize: 14, color: _copper, letterSpacing: 1.4)),
+          pw.Text(docTitle, style: pw.TextStyle(font: cond, fontSize: 14, color: _copper, letterSpacing: 1.4)),
           pw.Text('${project.name}  ·  ${project.code}', style: pw.TextStyle(font: semi, fontSize: 9.5, color: _muted)),
         ]),
       ]),
@@ -135,8 +139,49 @@ Future<Uint8List> buildMinutesPdf({
         ]),
       ),
 
+      if (m.agenda.isNotEmpty) ...[
+        heading(totalMin > 0 ? 'Agenda ($totalMin min)' : 'Agenda'),
+        table(
+          ['#', 'Topic', 'Lead', 'Time'],
+          [
+            for (var i = 0; i < m.agenda.length; i++)
+              [
+                cell('${i + 1}', color: _muted, align: pw.TextAlign.center),
+                cell(m.agenda[i].text, font: semi),
+                cell(m.agenda[i].owner),
+                cell(m.agenda[i].minutes > 0 ? '${m.agenda[i].minutes} min' : '', align: pw.TextAlign.right),
+              ],
+          ],
+          const {0: pw.FixedColumnWidth(24), 1: pw.FlexColumnWidth(6), 2: pw.FlexColumnWidth(2.4), 3: pw.FixedColumnWidth(52)},
+        ),
+      ],
+
+      if (m.prep.isNotEmpty) ...[
+        heading('Before the meeting'),
+        table(
+          ['#', 'To be done before the meeting', 'Who', 'By', 'Done'],
+          [
+            for (var i = 0; i < m.prep.length; i++)
+              [
+                cell('${i + 1}', color: _muted, align: pw.TextAlign.center),
+                cell(m.prep[i].text),
+                cell(m.prep[i].owner, font: semi),
+                cell(m.prep[i].due == null ? '—' : shortDate(m.prep[i].due!)),
+                cell(m.prep[i].done ? 'Done' : 'Open', color: m.prep[i].done ? _muted : _ink, align: pw.TextAlign.center),
+              ],
+          ],
+          const {
+            0: pw.FixedColumnWidth(24),
+            1: pw.FlexColumnWidth(5.4),
+            2: pw.FlexColumnWidth(2.4),
+            3: pw.FixedColumnWidth(62),
+            4: pw.FixedColumnWidth(44),
+          },
+        ),
+      ],
+
       if (m.attendees.isNotEmpty) ...[
-        heading('Attendees'),
+        heading(agendaOnly ? 'Invited' : 'Attendees'),
         table(
           ['Name', 'Company', 'Trade / role', 'Present'],
           [
@@ -152,9 +197,11 @@ Future<Uint8List> buildMinutesPdf({
         ),
       ],
 
-      heading('Summary'),
-      pw.Text(m.summary.trim().isEmpty ? 'No summary recorded.' : m.summary.trim(),
-          style: pw.TextStyle(fontSize: 10.5, color: m.summary.trim().isEmpty ? _muted : _ink)),
+      if (!agendaOnly) ...[
+        heading('Summary'),
+        pw.Text(m.summary.trim().isEmpty ? 'No summary recorded.' : m.summary.trim(),
+            style: pw.TextStyle(fontSize: 10.5, color: m.summary.trim().isEmpty ? _muted : _ink)),
+      ],
 
       if (m.items.isNotEmpty) ...[
         heading('Items discussed (${m.items.length})'),

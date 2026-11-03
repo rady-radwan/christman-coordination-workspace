@@ -27,7 +27,7 @@ class MeetingsScreen extends StatelessWidget {
     final header = PageHeader(
       title: 'Coordination Meetings',
       actions: [
-        if (s.myRole.isCoord)
+        if (s.canEditMeetings)
           FilledButton.icon(
             onPressed: () => openMeetingForm(context),
             icon: const Icon(Icons.add, size: 20),
@@ -71,7 +71,7 @@ class MeetingsScreen extends StatelessWidget {
                       icon: Icons.groups_outlined,
                       title: s.meetings.isEmpty ? 'No meetings yet' : 'Pick a meeting',
                       body: s.meetings.isEmpty
-                          ? (s.myRole.isCoord
+                          ? (s.canEditMeetings
                               ? 'Click New Meeting to schedule one, pick the items to discuss, and record the minutes.'
                               : 'Meeting minutes from the Christman VDC team show here.')
                           : 'Select a meeting on the left to read its minutes or download them as a PDF.',
@@ -218,7 +218,8 @@ class MeetingDetail extends StatelessWidget {
         project: s.project!,
         recordedBy: s.person(m.createdBy)?.name ?? 'Christman VDC',
       );
-      final name = safeFileName('${s.project!.code} Meeting ${m.number} Minutes ${dateToDb(m.startsAt)}.pdf');
+      final kind = !m.hasMinutes && m.isUpcoming ? 'Agenda' : 'Minutes';
+      final name = safeFileName('${s.project!.code} Meeting ${m.number} $kind ${dateToDb(m.startsAt)}.pdf');
       final msg = await saveOrShareFile(bytes, name);
       if (msg != null && context.mounted) showInfo(context, msg);
     } catch (e) {
@@ -232,7 +233,7 @@ class MeetingDetail extends StatelessWidget {
     final c = CwColors.of(context);
     final m = s.meetings.where((x) => x.id == meetingId).firstOrNull;
     if (m == null) return const EmptyState(icon: Icons.search_off, title: 'Meeting not found');
-    final coord = s.myRole.isCoord;
+    final coord = s.canEditMeetings;
     final pad = phone ? 16.0 : 24.0;
 
     Widget section(String title, Widget child, {Widget? trailing}) => Padding(
@@ -243,6 +244,16 @@ class MeetingDetail extends StatelessWidget {
             child,
           ]),
         );
+
+    Future<void> togglePrep(int i, bool done) async {
+      final list = [...m.prep];
+      list[i].done = done;
+      try {
+        await s.saveMeeting(m, {'prep': list.map((a) => a.toJson()).toList()});
+      } catch (e) {
+        if (context.mounted) showError(context, e);
+      }
+    }
 
     Future<void> toggleAction(int i, bool done) async {
       final list = [...m.actions];
@@ -287,13 +298,19 @@ class MeetingDetail extends StatelessWidget {
           FilledButton.icon(
             onPressed: () => _download(context, s, m),
             icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
-            label: const Text('Download Minutes (PDF)'),
+            label: Text(!m.hasMinutes && m.isUpcoming ? 'Download Agenda (PDF)' : 'Download Minutes (PDF)'),
           ),
           if (coord)
             OutlinedButton.icon(
               onPressed: () => openMeetingForm(context, meeting: m),
               icon: const Icon(Icons.edit_outlined, size: 18),
-              label: Text(m.hasMinutes ? 'Edit Minutes' : 'Write Minutes'),
+              label: Text(m.isUpcoming && !m.hasMinutes ? 'Edit Agenda / Minutes' : (m.hasMinutes ? 'Edit Minutes' : 'Write Minutes')),
+            ),
+          if (coord)
+            OutlinedButton.icon(
+              onPressed: () => openMeetingForm(context, template: planNextMeeting(s, m)),
+              icon: const Icon(Icons.event_repeat, size: 18),
+              label: const Text('Plan Next Meeting'),
             ),
           if (coord)
             OutlinedButton.icon(
@@ -310,6 +327,72 @@ class MeetingDetail extends StatelessWidget {
               label: const Text('Delete'),
             ),
         ]),
+
+        section(
+          m.agenda.isEmpty ? 'Agenda' : 'Agenda · ${m.agenda.length} topics${_totalMinutes(m.agenda) > 0 ? ' · ${_totalMinutes(m.agenda)} min' : ''}',
+          m.agenda.isEmpty
+              ? Text(coord ? 'No agenda yet. Use "Edit" to add the topics for this meeting.' : 'No agenda yet.', style: TextStyle(color: c.muted))
+              : Container(
+                  decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: c.line)),
+                  child: Column(children: [
+                    for (var i = 0; i < m.agenda.length; i++)
+                      Container(
+                        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                        decoration: BoxDecoration(border: i == 0 ? null : Border(top: BorderSide(color: c.line))),
+                        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Container(
+                            width: 26,
+                            height: 26,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(color: c.accentSoft, shape: BoxShape.circle),
+                            child: Text('${i + 1}', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: c.accentText)),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(child: Text(m.agenda[i].text, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14.5, height: 1.35))),
+                          if (m.agenda[i].owner.isNotEmpty) ...[const SizedBox(width: 10), Text(m.agenda[i].owner, style: TextStyle(fontSize: 13, color: c.ink2))],
+                          if (m.agenda[i].minutes > 0) ...[const SizedBox(width: 10), Text('${m.agenda[i].minutes} min', style: TextStyle(fontSize: 13, color: c.muted))],
+                        ]),
+                      ),
+                  ]),
+                ),
+        ),
+
+        if (m.prep.isNotEmpty || (coord && m.isUpcoming))
+          section(
+            'Before the meeting · ${m.prep.where((p) => !p.done).length} to do',
+            m.prep.isEmpty
+                ? Text('Nothing listed yet. Add what people must have done before they come.', style: TextStyle(color: c.muted))
+                : Container(
+                    decoration: BoxDecoration(
+                      color: c.accentSoft,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: c.accent.withValues(alpha: 0.5)),
+                    ),
+                    child: Column(children: [
+                      for (var i = 0; i < m.prep.length; i++)
+                        Container(
+                          decoration: BoxDecoration(border: i == 0 ? null : Border(top: BorderSide(color: c.line))),
+                          child: CheckboxListTile(
+                            value: m.prep[i].done,
+                            onChanged: coord ? (v) => togglePrep(i, v ?? false) : null,
+                            controlAffinity: ListTileControlAffinity.leading,
+                            title: Text(
+                              m.prep[i].text,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                decoration: m.prep[i].done ? TextDecoration.lineThrough : null,
+                                color: m.prep[i].done ? c.muted : c.ink,
+                              ),
+                            ),
+                            subtitle: Text([
+                              if (m.prep[i].owner.isNotEmpty) 'Who: ${m.prep[i].owner}',
+                              if (m.prep[i].due != null) 'By ${weekdayDate(m.prep[i].due!)}',
+                            ].join('  ·  ')),
+                          ),
+                        ),
+                    ]),
+                  ),
+          ),
 
         section(
           'Attendees · ${m.attendees.where((a) => a.present).length} present of ${m.attendees.length}',
@@ -418,18 +501,60 @@ class MeetingDetail extends StatelessWidget {
 }
 
 // =====================================================================
-// New meeting / write minutes (coordinators and the admin)
+// New meeting / agenda / minutes (admin)
 // =====================================================================
 
-Future<void> openMeetingForm(BuildContext context, {Meeting? meeting}) => openForm<void>(
-      context,
-      title: meeting == null ? 'New coordination meeting' : 'Meeting ${meeting.number} — minutes',
-      builder: (_) => _MeetingForm(meeting: meeting),
+Widget _ownerMenu(List<String> owners, ValueChanged<String> onPick) => PopupMenuButton<String>(
+      tooltip: 'Pick',
+      icon: const Icon(Icons.arrow_drop_down),
+      onSelected: onPick,
+      itemBuilder: (_) => owners.map((o) => PopupMenuItem(value: o, child: Text(o))).toList(),
     );
 
+int _totalMinutes(List<AgendaItem> a) => a.fold(0, (sum, x) => sum + x.minutes);
+
+/// [template] pre-fills a new meeting (used by "Plan Next Meeting").
+Future<void> openMeetingForm(BuildContext context, {Meeting? meeting, Meeting? template}) => openForm<void>(
+      context,
+      title: meeting != null
+          ? 'Meeting ${meeting.number} — agenda and minutes'
+          : (template != null ? 'Plan the next meeting' : 'New coordination meeting'),
+      builder: (_) => _MeetingForm(meeting: meeting, template: template),
+    );
+
+/// The next meeting, pre-filled from [m]: same title, place and people; open action items
+/// become "before the meeting" tasks; items still open become follow-up topics.
+Meeting planNextMeeting(AppState s, Meeting m) {
+  final start = m.nextMeeting ?? m.startsAt.add(const Duration(days: 7));
+  final openActions = m.actions.where((a) => !a.done).toList();
+  final followUps = m.items.where((i) => s.itemById(i.itemId)?.status.isActive ?? false).toList();
+  return Meeting(
+    id: '',
+    projectId: m.projectId,
+    number: 0,
+    title: m.title,
+    startsAt: start,
+    durationMin: m.durationMin,
+    location: m.location,
+    attendees: m.attendees.map((a) => Attendee(name: a.name, company: a.company, role: a.role, userId: a.userId)).toList(),
+    agenda: [
+      if (openActions.isNotEmpty) AgendaItem(text: 'Review open action items from meeting ${m.number}', owner: 'Christman VDC', minutes: 10),
+      for (final i in followUps) AgendaItem(text: 'Follow up: ${i.number} — ${i.title}', owner: i.ball, minutes: 5),
+      AgendaItem(text: 'New clashes and items by area', owner: 'Christman VDC', minutes: 20),
+      AgendaItem(text: 'Schedule, sign-offs and model submissions', owner: 'Christman VDC', minutes: 10),
+    ],
+    prep: [
+      for (final a in openActions) ActionItem(text: a.text, owner: a.owner, due: a.due),
+      ActionItem(text: 'Upload your latest model before the meeting', owner: 'All trades', due: start.subtract(const Duration(days: 1))),
+    ],
+    updatedAt: DateTime.now(),
+  );
+}
+
 class _MeetingForm extends StatefulWidget {
-  const _MeetingForm({this.meeting});
+  const _MeetingForm({this.meeting, this.template});
   final Meeting? meeting;
+  final Meeting? template;
 
   @override
   State<_MeetingForm> createState() => _MeetingFormState();
@@ -439,13 +564,23 @@ class _MeetingFormState extends State<_MeetingForm> {
   late final AppState s = context.read<AppState>();
   late final Meeting? m = widget.meeting;
 
-  late final _title = TextEditingController(text: m?.title ?? 'Weekly MEP Coordination Meeting');
-  late final _location = TextEditingController(text: m?.location ?? (s.meetings.isEmpty ? '' : s.meetings.first.location));
+  /// Where the starting values come from: the meeting being edited, or the plan for the next one.
+  late final Meeting? src = widget.meeting ?? widget.template;
+
+  late final _title = TextEditingController(text: src?.title ?? 'Weekly MEP Coordination Meeting');
+  late final _location = TextEditingController(text: src?.location ?? (s.meetings.isEmpty ? '' : s.meetings.first.location));
   late final _summary = TextEditingController(text: m?.summary ?? '');
-  late DateTime _start = m?.startsAt ?? _defaultStart();
-  late int _duration = m?.durationMin ?? 60;
+  late DateTime _start = src?.startsAt ?? _defaultStart();
+  late int _duration = src?.durationMin ?? 60;
   late DateTime? _next = m?.nextMeeting;
-  late final List<Attendee> _attendees = m == null ? _teamAttendees() : m!.attendees.map((a) => Attendee.fromJson(a.toJson())).toList();
+  late final List<Attendee> _attendees =
+      src == null || src!.attendees.isEmpty ? _teamAttendees() : src!.attendees.map((a) => Attendee.fromJson(a.toJson())).toList();
+  late final List<AgendaItem> _agenda = (src?.agenda ?? const []).map((x) => AgendaItem.fromJson(x.toJson())).toList();
+  late final List<ActionItem> _prep = (src?.prep ?? const []).map((x) => ActionItem.fromJson(x.toJson())).toList();
+  late final Map<AgendaItem, TextEditingController> _agendaText = {for (final a in _agenda) a: TextEditingController(text: a.text)};
+  late final Map<AgendaItem, TextEditingController> _agendaOwner = {for (final a in _agenda) a: TextEditingController(text: a.owner)};
+  late final Map<ActionItem, TextEditingController> _prepText = {for (final a in _prep) a: TextEditingController(text: a.text)};
+  late final Map<ActionItem, TextEditingController> _prepOwner = {for (final a in _prep) a: TextEditingController(text: a.owner)};
   late final List<MeetingItem> _items = (m?.items ?? const []).map((x) => MeetingItem.fromJson(x.toJson())).toList();
   late final List<ActionItem> _actions = (m?.actions ?? const []).map((x) => ActionItem.fromJson(x.toJson())).toList();
   late final Map<MeetingItem, TextEditingController> _notes = {for (final i in _items) i: TextEditingController(text: i.note)};
@@ -481,7 +616,15 @@ class _MeetingFormState extends State<_MeetingForm> {
     _title.dispose();
     _location.dispose();
     _summary.dispose();
-    for (final c in [..._notes.values, ..._actionText.values, ..._actionOwner.values]) {
+    for (final c in [
+      ..._notes.values,
+      ..._actionText.values,
+      ..._actionOwner.values,
+      ..._agendaText.values,
+      ..._agendaOwner.values,
+      ..._prepText.values,
+      ..._prepOwner.values,
+    ]) {
       c.dispose();
     }
     super.dispose();
@@ -621,12 +764,26 @@ class _MeetingFormState extends State<_MeetingForm> {
       a.owner = _actionOwner[a]!.text.trim();
       if (a.text.isNotEmpty) actions.add(a);
     }
+    final agenda = <AgendaItem>[];
+    for (final a in _agenda) {
+      a.text = _agendaText[a]!.text.trim();
+      a.owner = _agendaOwner[a]!.text.trim();
+      if (a.text.isNotEmpty) agenda.add(a);
+    }
+    final prep = <ActionItem>[];
+    for (final a in _prep) {
+      a.text = _prepText[a]!.text.trim();
+      a.owner = _prepOwner[a]!.text.trim();
+      if (a.text.isNotEmpty) prep.add(a);
+    }
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
       await s.saveMeeting(m, {
+        'agenda': agenda.map((a) => a.toJson()).toList(),
+        'prep': prep.map((a) => a.toJson()).toList(),
         'title': _title.text.trim(),
         'starts_at': _start.toUtc().toIso8601String(),
         'duration_min': _duration,
@@ -639,7 +796,7 @@ class _MeetingFormState extends State<_MeetingForm> {
       });
       if (mounted) {
         Navigator.of(context).pop();
-        showInfo(context, m == null ? 'Meeting created' : 'Minutes saved');
+        showInfo(context, m == null ? 'Meeting created' : 'Meeting saved');
       }
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
@@ -697,6 +854,145 @@ class _MeetingFormState extends State<_MeetingForm> {
               ),
               SizedBox(width: wide ? 280 : double.infinity, child: labeled('Location', TextField(controller: _location, decoration: const InputDecoration(hintText: 'e.g. Site trailer / Teams')))),
             ]),
+
+            const SizedBox(height: 20),
+            SectionLabel(
+              'Agenda · ${_agenda.length} topics${_totalMinutes(_agenda) > 0 ? ' · ${_totalMinutes(_agenda)} min' : ''}',
+              trailing: TextButton.icon(
+                onPressed: () => setState(() {
+                  final a = AgendaItem(text: '', minutes: 10);
+                  _agenda.add(a);
+                  _agendaText[a] = TextEditingController();
+                  _agendaOwner[a] = TextEditingController();
+                }),
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('Add topic'),
+              ),
+            ),
+            const SizedBox(height: 6),
+            if (_agenda.isEmpty) Text('What will be discussed, in order.', style: TextStyle(color: c.muted)),
+            for (var i = 0; i < _agenda.length; i++)
+              Container(
+                key: ObjectKey(_agenda[i]),
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.fromLTRB(10, 8, 4, 8),
+                decoration: BoxDecoration(color: c.surface2, borderRadius: BorderRadius.circular(12), border: Border.all(color: c.line)),
+                child: Row(children: [
+                  Text('${i + 1}.', style: TextStyle(fontWeight: FontWeight.w800, color: c.accentText)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    flex: 5,
+                    child: TextField(controller: _agendaText[_agenda[i]], decoration: const InputDecoration(hintText: 'Topic', isDense: true)),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    flex: 2,
+                    child: TextField(
+                      controller: _agendaOwner[_agenda[i]],
+                      decoration: InputDecoration(
+                        hintText: 'Lead',
+                        isDense: true,
+                        suffixIcon: _ownerMenu(owners, (v) => setState(() => _agendaOwner[_agenda[i]]!.text = v)),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  DropdownButton<int>(
+                    value: [0, 5, 10, 15, 20, 30, 45, 60].contains(_agenda[i].minutes) ? _agenda[i].minutes : 0,
+                    underline: const SizedBox.shrink(),
+                    items: [0, 5, 10, 15, 20, 30, 45, 60]
+                        .map((v) => DropdownMenuItem(value: v, child: Text(v == 0 ? '— min' : '$v min')))
+                        .toList(),
+                    onChanged: (v) => setState(() => _agenda[i].minutes = v ?? 0),
+                  ),
+                  IconButton(
+                    tooltip: 'Move up',
+                    onPressed: i == 0 ? null : () => setState(() => _agenda.insert(i - 1, _agenda.removeAt(i))),
+                    icon: const Icon(Icons.arrow_upward, size: 18),
+                  ),
+                  IconButton(
+                    tooltip: 'Remove topic',
+                    onPressed: () => setState(() {
+                      final a = _agenda.removeAt(i);
+                      _agendaText.remove(a)?.dispose();
+                      _agendaOwner.remove(a)?.dispose();
+                    }),
+                    icon: Icon(Icons.close, size: 18, color: c.muted),
+                  ),
+                ]),
+              ),
+
+            const SizedBox(height: 20),
+            SectionLabel(
+              'Before the meeting · ${_prep.length}',
+              trailing: TextButton.icon(
+                onPressed: () => setState(() {
+                  final a = ActionItem(text: '', due: _start.subtract(const Duration(days: 1)));
+                  _prep.add(a);
+                  _prepText[a] = TextEditingController();
+                  _prepOwner[a] = TextEditingController();
+                }),
+                icon: const Icon(Icons.add_task, size: 18),
+                label: const Text('Add task'),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text('What each trade must have done before they come (e.g. upload the latest model, answer open items).',
+                style: TextStyle(fontSize: 13, color: c.muted)),
+            const SizedBox(height: 6),
+            for (final a in List.of(_prep))
+              Container(
+                key: ObjectKey(a),
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.fromLTRB(4, 6, 4, 8),
+                decoration: BoxDecoration(color: c.surface2, borderRadius: BorderRadius.circular(12), border: Border.all(color: c.line)),
+                child: Column(children: [
+                  Row(children: [
+                    Checkbox(value: a.done, onChanged: (v) => setState(() => a.done = v ?? false)),
+                    Expanded(child: TextField(controller: _prepText[a], decoration: const InputDecoration(hintText: 'Task', isDense: true))),
+                    IconButton(
+                      tooltip: 'Remove',
+                      onPressed: () => setState(() {
+                        _prep.remove(a);
+                        _prepText.remove(a)?.dispose();
+                        _prepOwner.remove(a)?.dispose();
+                      }),
+                      icon: Icon(Icons.close, size: 18, color: c.muted),
+                    ),
+                  ]),
+                  const SizedBox(height: 6),
+                  Padding(
+                    padding: const EdgeInsets.only(left: 48, right: 8),
+                    child: Row(children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _prepOwner[a],
+                          decoration: InputDecoration(
+                            hintText: 'Who',
+                            isDense: true,
+                            suffixIcon: _ownerMenu(['All trades', ...owners], (v) => setState(() => _prepOwner[a]!.text = v)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      OutlinedButton.icon(
+                        onPressed: () async {
+                          final now = DateTime.now();
+                          final d = await showDatePicker(
+                            context: context,
+                            initialDate: a.due ?? now,
+                            firstDate: DateTime(now.year - 2),
+                            lastDate: DateTime(now.year + 3),
+                          );
+                          if (d != null) setState(() => a.due = d);
+                        },
+                        icon: const Icon(Icons.event_outlined, size: 16),
+                        label: Text(a.due == null ? 'By date' : shortDate(a.due!)),
+                      ),
+                    ]),
+                  ),
+                ]),
+              ),
 
             const SizedBox(height: 20),
             SectionLabel('Attendees · ${_attendees.where((a) => a.present).length} present of ${_attendees.length}', trailing: Wrap(spacing: 4, children: [
