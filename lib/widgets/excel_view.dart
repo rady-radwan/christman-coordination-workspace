@@ -81,9 +81,9 @@ class _ExcelSheetViewState extends State<ExcelSheetView> {
       final toolbar = Padding(
         padding: const EdgeInsets.only(bottom: 8),
         child: Wrap(spacing: 4, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
-          IconButton(tooltip: 'Smaller', onPressed: () => setState(() => _zoom = (z - 0.1).clamp(0.3, 3.0)), icon: const Icon(Icons.zoom_out)),
+          IconButton(tooltip: 'Smaller', onPressed: () => setState(() => _zoom = (z - 0.1).clamp(0.3, 3.0).toDouble()), icon: const Icon(Icons.zoom_out)),
           SizedBox(width: 52, child: Text('${(z * 100).round()}%', textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w700))),
-          IconButton(tooltip: 'Larger', onPressed: () => setState(() => _zoom = (z + 0.1).clamp(0.3, 3.0)), icon: const Icon(Icons.zoom_in)),
+          IconButton(tooltip: 'Larger', onPressed: () => setState(() => _zoom = (z + 0.1).clamp(0.3, 3.0).toDouble()), icon: const Icon(Icons.zoom_in)),
           TextButton(onPressed: () => setState(() => _zoom = 1), child: const Text('100%')),
           TextButton(onPressed: () => setState(() => _zoom = fit), child: const Text('Fit width')),
           if (sheet.chartCount > 0)

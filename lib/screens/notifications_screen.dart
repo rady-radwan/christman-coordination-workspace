@@ -6,9 +6,11 @@ import '../state/app_state.dart';
 import '../theme.dart';
 import '../util/dates.dart';
 import '../widgets/common.dart';
+import '../widgets/update_widgets.dart';
 import 'item_detail.dart';
 
-/// The bell: new items, ball-in-court changes, responses, replies and sign-ups.
+/// The bell: new items, ball-in-court changes, responses, replies, announcements and sign-ups.
+/// New ones are bright; ones already seen are dimmed. Any of them can be deleted.
 class NotificationsScreen extends StatelessWidget {
   const NotificationsScreen({super.key});
 
@@ -17,6 +19,8 @@ class NotificationsScreen extends StatelessWidget {
     final s = context.watch<AppState>();
     final c = CwColors.of(context);
     final list = s.notifications;
+    final unread = list.where((n) => !n.isRead).toList();
+    final read = list.where((n) => n.isRead).toList();
     final wide = isWide(context);
 
     Future<void> openOne(AppNotification n) async {
@@ -26,75 +30,151 @@ class NotificationsScreen extends StatelessWidget {
       }
     }
 
+    Future<void> delete(Iterable<AppNotification> items) async {
+      try {
+        await s.deleteNotifications(items);
+      } catch (e) {
+        if (context.mounted) showError(context, e);
+      }
+    }
+
+    Widget tile(AppNotification n) {
+      final dim = n.isRead;
+      final card = Material(
+        color: dim ? c.surface : c.accentSoft,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: dim ? c.line : c.accent.withValues(alpha: 0.5)),
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () => openOne(n),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Padding(padding: const EdgeInsets.only(top: 2), child: Icon(n.icon, color: dim ? c.muted : c.accentText)),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(n.title, style: TextStyle(fontWeight: dim ? FontWeight.w500 : FontWeight.w800, fontSize: 14, color: dim ? c.ink2 : c.ink)),
+                  if (n.body.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(n.body, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: dim ? c.muted : c.ink2)),
+                  ],
+                  const SizedBox(height: 2),
+                  Text(agoText(n.createdAt), style: TextStyle(fontSize: 12, color: c.muted)),
+                ]),
+              ),
+              if (!dim)
+                IconButton(
+                  tooltip: 'Mark as read',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => s.markRead([n]),
+                  icon: Icon(Icons.done, size: 19, color: c.muted),
+                ),
+              IconButton(
+                tooltip: 'Delete',
+                visualDensity: VisualDensity.compact,
+                onPressed: () => delete([n]),
+                icon: Icon(Icons.close, size: 19, color: c.muted),
+              ),
+            ]),
+          ),
+        ),
+      );
+      return Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 820),
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Dismissible(
+              key: ValueKey('n${n.id}'),
+              direction: DismissDirection.endToStart,
+              background: Container(
+                alignment: Alignment.centerRight,
+                padding: const EdgeInsets.only(right: 20),
+                decoration: BoxDecoration(color: const Color(0xFFB3261E), borderRadius: BorderRadius.circular(12)),
+                child: const Icon(Icons.delete_outline, color: Colors.white),
+              ),
+              onDismissed: (_) => delete([n]),
+              child: Opacity(opacity: dim ? 0.6 : 1, child: card),
+            ),
+          ),
+        ),
+      );
+    }
+
+    Widget heading(String text, {Widget? action}) => Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 820),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(4, 10, 0, 6),
+              child: Row(children: [
+                Expanded(child: Text(text, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 0.8, color: c.muted))),
+                if (action != null) action,
+              ]),
+            ),
+          ),
+        );
+
     return Column(children: [
       PageHeader(
         title: 'Notifications',
         subtitle: s.unreadCount == 0 ? 'All caught up' : '${s.unreadCount} new',
         actions: [
           if (s.unreadCount > 0)
-            TextButton.icon(onPressed: () => s.markAllRead(), icon: const Icon(Icons.done_all, size: 18), label: const Text('Mark all read')),
+            TextButton.icon(onPressed: () => s.markAllRead(), icon: const Icon(Icons.done_all, size: 18), label: Text(wide ? 'Mark all read' : 'Read all')),
           if (list.isNotEmpty)
-            IconButton(
-              tooltip: 'Clear all',
-              onPressed: () async {
-                if (await confirm(context, 'Clear all notifications?', 'This only clears your own list.', ok: 'Clear')) {
-                  await s.clearNotifications();
+            PopupMenuButton<String>(
+              tooltip: 'Delete…',
+              icon: const Icon(Icons.delete_sweep_outlined),
+              onSelected: (v) async {
+                if (v == 'read') {
+                  await delete(read);
+                } else if (v == 'all') {
+                  if (await confirm(context, 'Delete all notifications?', 'This only clears your own list.', ok: 'Delete all', danger: true)) {
+                    await delete(list);
+                  }
                 }
               },
-              icon: const Icon(Icons.delete_sweep_outlined),
+              itemBuilder: (_) => [
+                PopupMenuItem(value: 'read', enabled: read.isNotEmpty, child: Text('Delete read ones (${read.length})')),
+                PopupMenuItem(value: 'all', child: Text('Delete all (${list.length})')),
+              ],
             ),
+          const SizedBox(width: 4),
         ],
       ),
       Expanded(
-        child: list.isEmpty
-            ? const EmptyState(
-                icon: Icons.notifications_none,
-                title: 'No notifications',
-                body: 'You hear about new items for your trade, the ball coming to you, responses and replies here.',
-              )
-            : ListView.separated(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
-                itemCount: list.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 6),
-                itemBuilder: (context, i) {
-                  final n = list[i];
-                  return Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 820),
-                      child: Material(
-                        color: n.isRead ? c.surface : c.accentSoft,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          side: BorderSide(color: n.isRead ? c.line : c.accent.withValues(alpha: 0.5)),
-                        ),
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(12),
-                          onTap: () => openOne(n),
-                          child: Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                              Icon(n.icon, color: n.isRead ? c.muted : c.accentText),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                  Text(n.title,
-                                      style: TextStyle(fontWeight: n.isRead ? FontWeight.w600 : FontWeight.w800, fontSize: 14, color: c.ink)),
-                                  if (n.body.isNotEmpty) ...[
-                                    const SizedBox(height: 2),
-                                    Text(n.body, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: c.ink2)),
-                                  ],
-                                ]),
-                              ),
-                              const SizedBox(width: 8),
-                              Text(agoText(n.createdAt), style: TextStyle(fontSize: 12, color: c.muted)),
-                            ]),
-                          ),
-                        ),
-                      ),
-                    ),
-                  );
-                },
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
+          children: [
+            if (s.update != null)
+              Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 820),
+                  child: const Padding(padding: EdgeInsets.only(bottom: 10), child: UpdateNotice()),
+                ),
               ),
+            if (list.isEmpty)
+              const Padding(
+                padding: EdgeInsets.only(top: 60),
+                child: EmptyState(
+                  icon: Icons.notifications_none,
+                  title: 'No notifications',
+                  body: 'You hear about new items for your trade, the ball coming to you, responses, replies and announcements here.',
+                ),
+              ),
+            if (unread.isNotEmpty) heading('NEW'),
+            for (final n in unread) tile(n),
+            if (read.isNotEmpty)
+              heading(
+                'EARLIER',
+                action: TextButton(onPressed: () => delete(read), child: const Text('Delete these')),
+              ),
+            for (final n in read) tile(n),
+          ],
+        ),
       ),
     ]);
   }

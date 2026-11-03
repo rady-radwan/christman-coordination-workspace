@@ -10,4 +10,8 @@ const serverKey = 'sb_publishable_QPloC9N0iHlizOwm8SqcMQ_Pzjyot5e';
 const signInRedirect = 'christman-coord://login-callback';
 
 const appName = 'Christman Coordination Workspace';
-const appVersion = '0.4.0';
+const appVersion = '0.5.0';
+
+/// Where new versions are published (the "installer" branch of the GitHub repository).
+/// GitHub Actions writes version.json there after every build.
+const releaseBaseUrl = 'https://raw.githubusercontent.com/rady-radwan/christman-coordination-workspace/installer';

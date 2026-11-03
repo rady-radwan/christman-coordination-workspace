@@ -7,12 +7,14 @@ import 'package:supabase_flutter/supabase_flutter.dart' show AuthChangeEvent;
 import '../data/api.dart';
 import '../models.dart';
 import '../theme.dart';
+import '../config.dart';
 import '../util/dates.dart';
+import '../util/update_check.dart';
 import 'settings.dart';
 
 /// The parts of the app reached from the sidebar (Windows) or the bottom tabs (phone).
 /// [more] is the phone's "More" menu.
-enum Section { ballInCourt, allItems, meetings, schedule, bep, clashReports, notifications, team, setup, settings, more }
+enum Section { ballInCourt, allItems, meetings, schedule, bep, clashReports, announcements, notifications, team, setup, settings, more }
 
 /// How the All Items list is grouped.
 enum ListMode { list, byDate, byArea }
@@ -67,6 +69,7 @@ class AppState extends ChangeNotifier {
   List<BepSection> bepSections = [];
   List<BepFile> bepFiles = [];
   List<ClashReport> clashReports = [];
+  List<Announcement> announcements = [];
   String? selectedReportId;
   bool loadingProject = false;
   String? selectedMeetingId;
@@ -107,6 +110,38 @@ class AppState extends ChangeNotifier {
     }
     booting = false;
     notifyListeners();
+    unawaited(checkForUpdate());
+    _updateTimer = Timer.periodic(const Duration(hours: 2), (_) => unawaited(checkForUpdate()));
+  }
+
+  // ------------------------------------------------------------------ new versions
+
+  /// A newer version than this one, when published.
+  AppRelease? update;
+
+  /// "Later" was pressed on the banner (this session only).
+  bool updateHidden = false;
+  DateTime? updateCheckedAt;
+  Timer? _updateTimer;
+
+  /// Looks for a newer version. Returns true when one is available.
+  Future<bool> checkForUpdate() async {
+    final r = await fetchLatestRelease();
+    updateCheckedAt = DateTime.now();
+    if (r != null && compareVersions(r.version, appVersion) > 0) {
+      final isNew = update?.version != r.version;
+      update = r;
+      if (isNew) updateHidden = false;
+    } else if (r != null) {
+      update = null;
+    }
+    notifyListeners();
+    return update != null;
+  }
+
+  void hideUpdate() {
+    updateHidden = true;
+    notifyListeners();
   }
 
   @override
@@ -114,6 +149,7 @@ class AppState extends ChangeNotifier {
     _authSub?.cancel();
     _debounce?.cancel();
     _saveLook?.cancel();
+    _updateTimer?.cancel();
     api.stopListening();
     super.dispose();
   }
@@ -156,6 +192,7 @@ class AppState extends ChangeNotifier {
     bepSections = [];
     bepFiles = [];
     clashReports = [];
+    announcements = [];
     selectedReportId = null;
     selectedItemId = null;
     selectedMeetingId = null;
@@ -263,6 +300,7 @@ class AppState extends ChangeNotifier {
       api.bepSections(p.id),
       api.bepFiles(p.id),
       api.clashReports(p.id),
+      api.announcements(p.id),
     ]);
     trades = results[0] as List<Trade>;
     types = results[1] as List<ItemType>;
@@ -275,6 +313,7 @@ class AppState extends ChangeNotifier {
     bepSections = results[8] as List<BepSection>;
     bepFiles = results[9] as List<BepFile>;
     clashReports = results[10] as List<ClashReport>;
+    announcements = results[11] as List<Announcement>;
     await _loadInvites();
   }
 
@@ -345,6 +384,10 @@ class AppState extends ChangeNotifier {
       if (t.contains('bep_sections') && p != null) bepSections = await api.bepSections(p.id);
       if (t.contains('bep_files') && p != null) bepFiles = await api.bepFiles(p.id);
       if (t.contains('clash_reports') && p != null) clashReports = await api.clashReports(p.id);
+      if (t.contains('announcements') && p != null) {
+        announcements = await api.announcements(p.id);
+        if (section == Section.announcements) markAnnouncementsSeen();
+      }
       if (t.contains('profiles')) {
         people = {for (final x in await api.profiles()) x.id: x};
         final mine = await api.loadMe();
@@ -563,6 +606,7 @@ class AppState extends ChangeNotifier {
 
   void open(Section s) {
     section = s;
+    if (s == Section.announcements) markAnnouncementsSeen();
     notifyListeners();
   }
 
@@ -793,6 +837,39 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> deleteNotifications(Iterable<AppNotification> list) async {
+    final ids = list.map((n) => n.id).toList();
+    if (ids.isEmpty) return;
+    notifications = notifications.where((n) => !ids.contains(n.id)).toList();
+    notifyListeners();
+    await api.deleteNotifications(ids);
+  }
+
+  // ------------------------------------------------------------------ announcements
+
+  bool get canEditAnnouncements => isAdmin;
+
+  Future<void> reloadAnnouncements() async {
+    final p = project;
+    if (p == null) return;
+    announcements = await api.announcements(p.id);
+    notifyListeners();
+  }
+
+  /// Announcements posted by others since this person last opened the page.
+  int get newAnnouncements {
+    final p = project;
+    if (p == null) return 0;
+    final seen = settings.announcementsSeen(p.id);
+    return announcements.where((a) => a.createdBy != me?.id && (seen == null || a.createdAt.isAfter(seen))).length;
+  }
+
+  void markAnnouncementsSeen() {
+    final p = project;
+    if (p == null) return;
+    unawaited(settings.setAnnouncementsSeen(p.id, DateTime.now()));
+  }
+
   /// Opens the item a notification points to (switching project if needed).
   Future<void> openNotification(AppNotification n) async {
     unawaited(markRead([n]));
@@ -806,6 +883,9 @@ class AppState extends ChangeNotifier {
       filterStatus = 'all';
     } else if (n.kind == 'signup' || n.kind == 'suggestion') {
       section = Section.team;
+    } else if (n.kind == 'announcement') {
+      section = Section.announcements;
+      markAnnouncementsSeen();
     }
     notifyListeners();
   }

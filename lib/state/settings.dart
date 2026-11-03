@@ -30,4 +30,16 @@ class Settings {
   /// Email typed last time on the sign-in screen.
   String get lastEmail => _prefs.getString('last_email') ?? '';
   Future<void> setLastEmail(String email) => _prefs.setString('last_email', email);
+
+  /// When this person last looked at a project's announcements.
+  DateTime? announcementsSeen(String projectId) {
+    final ms = _prefs.getInt('ann_seen_$projectId');
+    return ms == null ? null : DateTime.fromMillisecondsSinceEpoch(ms);
+  }
+
+  Future<void> setAnnouncementsSeen(String projectId, DateTime t) => _prefs.setInt('ann_seen_$projectId', t.millisecondsSinceEpoch);
+
+  /// The newest app version this person was already told about (so the pop-up shows once per version).
+  String get updateShown => _prefs.getString('update_shown') ?? '';
+  Future<void> setUpdateShown(String v) => _prefs.setString('update_shown', v);
 }

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -5,10 +6,14 @@ import '../data/api.dart';
 import '../models.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
+import '../util/bep_blocks.dart';
 import '../util/dates.dart';
+import '../util/docx.dart';
 import '../util/pick_file.dart';
 import '../util/save_file.dart';
+import '../widgets/bep_view.dart';
 import '../widgets/common.dart';
+import 'bep_editor.dart';
 import 'notifications_screen.dart';
 
 /// Starting sections for a new BEP. The admin edits or deletes them.
@@ -68,6 +73,7 @@ class BepScreen extends StatefulWidget {
 
 class _BepScreenState extends State<BepScreen> {
   final _keys = <String, GlobalKey>{};
+  final _open = <String>{}; // long sections that are unfolded
   String? _trade; // filter for files: null = all
 
   GlobalKey _keyFor(String id) => _keys.putIfAbsent(id, () => GlobalKey());
@@ -81,7 +87,14 @@ class _BepScreenState extends State<BepScreen> {
     try {
       var sort = 0;
       for (final (title, body) in bepTemplate) {
-        await s.api.saveBepSection(values: {'project_id': s.project!.id, 'title': title, 'body': body, 'sort': sort++});
+        final blocks = blocksFromText(body);
+        await s.api.saveBepSection(values: {
+          'project_id': s.project!.id,
+          'title': title,
+          'content': blocksToJson(blocks),
+          'body': blocksPlainText(blocks),
+          'sort': sort++,
+        });
       }
       await s.reloadBep();
     } catch (e) {
@@ -89,12 +102,58 @@ class _BepScreenState extends State<BepScreen> {
     }
   }
 
-  Future<void> _move(AppState s, int index, int by) async {
+  /// Drag the sections into a new order (or use the arrows), then save.
+  Future<void> _arrange(AppState s) async {
     final list = [...s.bepSections];
-    final j = index + by;
-    if (j < 0 || j >= list.length) return;
-    final a = list.removeAt(index);
-    list.insert(j, a);
+    final save = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setState) {
+        final c = CwColors.of(ctx);
+        void move(int from, int to) => setState(() => list.insert(to, list.removeAt(from)));
+        return AlertDialog(
+          title: const Text('Arrange sections'),
+          content: SizedBox(
+            width: 520,
+            height: (list.length * 58.0 + 40).clamp(160.0, 520.0).toDouble(),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Text('Drag a section by its handle, or use the arrows.', style: TextStyle(fontSize: 13, color: c.muted)),
+              const SizedBox(height: 8),
+              Expanded(
+                child: ReorderableListView.builder(
+                  buildDefaultDragHandles: false,
+                  itemCount: list.length,
+                  onReorder: (from, to) => move(from, to > from ? to - 1 : to),
+                  itemBuilder: (ctx, i) => Material(
+                    key: ValueKey(list[i].id),
+                    color: Colors.transparent,
+                    child: ListTile(
+                      dense: true,
+                      contentPadding: const EdgeInsets.only(left: 4, right: 0),
+                      leading: ReorderableDragStartListener(
+                        index: i,
+                        child: MouseRegion(cursor: SystemMouseCursors.grab, child: Padding(padding: const EdgeInsets.all(6), child: Icon(Icons.drag_indicator, color: c.muted))),
+                      ),
+                      title: Text('${i + 1}. ${list[i].title}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14.5)),
+                      trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                        IconButton(tooltip: 'To the top', visualDensity: VisualDensity.compact, onPressed: i == 0 ? null : () => move(i, 0), icon: const Icon(Icons.vertical_align_top, size: 19)),
+                        IconButton(tooltip: 'Up', visualDensity: VisualDensity.compact, onPressed: i == 0 ? null : () => move(i, i - 1), icon: const Icon(Icons.arrow_upward, size: 19)),
+                        IconButton(tooltip: 'Down', visualDensity: VisualDensity.compact, onPressed: i == list.length - 1 ? null : () => move(i, i + 1), icon: const Icon(Icons.arrow_downward, size: 19)),
+                        IconButton(tooltip: 'To the bottom', visualDensity: VisualDensity.compact, onPressed: i == list.length - 1 ? null : () => move(i, list.length - 1), icon: const Icon(Icons.vertical_align_bottom, size: 19)),
+                      ]),
+                    ),
+                  ),
+                ),
+              ),
+            ]),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Save order')),
+          ],
+        );
+      }),
+    );
+    if (save != true) return;
     try {
       for (var i = 0; i < list.length; i++) {
         if (list[i].sort != i) await s.api.saveBepSection(id: list[i].id, values: {'sort': i});
@@ -102,6 +161,73 @@ class _BepScreenState extends State<BepScreen> {
       await s.reloadBep();
     } catch (e) {
       if (mounted) showError(context, e);
+    }
+  }
+
+  /// Turns a Word BEP into sections (one per top heading), with tables and pictures.
+  Future<void> _importWord(AppState s) async {
+    final f = await pickOneFile(extensions: const ['docx'], label: 'Word document');
+    if (f == null || !mounted) return;
+    DocxContent content;
+    try {
+      content = await compute(readDocx, f.bytes);
+    } catch (e) {
+      if (mounted) showError(context, e);
+      return;
+    }
+    if (!mounted) return;
+    final parts = content.sections();
+    final pictures = content.blocks.where((b) => b.type == 'img').length;
+    final tables = content.blocks.where((b) => b.type == 'table').length;
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Import ${f.name}'),
+        content: SizedBox(
+          width: 480,
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Text('Found ${parts.length} section${parts.length == 1 ? '' : 's'}, $tables table${tables == 1 ? '' : 's'} and $pictures picture${pictures == 1 ? '' : 's'}.'),
+            if (content.skippedPictures > 0) Text('${content.skippedPictures} very large pictures will be left out.', style: TextStyle(color: CwColors.of(ctx).muted)),
+            const SizedBox(height: 10),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 300),
+              child: ListView(shrinkWrap: true, children: [
+                for (var i = 0; i < parts.length; i++)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 3),
+                    child: Text('${i + 1}. ${parts[i].$1}', maxLines: 1, overflow: TextOverflow.ellipsis),
+                  ),
+              ]),
+            ),
+            const SizedBox(height: 8),
+            Text('The new sections are added after the ones you already have.', style: TextStyle(fontSize: 12.5, color: CwColors.of(ctx).muted)),
+          ]),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          if (parts.length > 1) OutlinedButton(onPressed: () => Navigator.pop(ctx, 'one'), child: const Text('All in one section')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, 'many'), child: Text(parts.length > 1 ? 'Create ${parts.length} sections' : 'Import')),
+        ],
+      ),
+    );
+    if (choice == null || !mounted) return;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(content: Row(children: [CircularProgressIndicator(), SizedBox(width: 16), Expanded(child: Text('Importing… pictures are being uploaded.'))])),
+    );
+    try {
+      final list = choice == 'one' ? [(f.name.replaceFirst(RegExp(r'\.docx$', caseSensitive: false), ''), content.blocks)] : parts;
+      final n = await saveImportedSections(s, list);
+      if (mounted) {
+        Navigator.of(context).pop();
+        showInfo(context, 'Added $n section${n == 1 ? '' : 's'} from ${f.name}.');
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context).pop();
+        showError(context, e);
+      }
     }
   }
 
@@ -116,11 +242,31 @@ class _BepScreenState extends State<BepScreen> {
       title: wide ? 'BIM Execution Plan' : 'BEP',
       actions: [
         if (admin && wide) ...[
-          OutlinedButton.icon(onPressed: () => openBepSectionForm(context), icon: const Icon(Icons.add, size: 20), label: const Text('Add Section')),
+          TextButton.icon(onPressed: () => _importWord(s), icon: const Icon(Icons.description_outlined, size: 20), label: const Text('Import Word')),
+          const SizedBox(width: 4),
+          if (s.bepSections.length > 1) ...[
+            OutlinedButton.icon(onPressed: () => _arrange(s), icon: const Icon(Icons.swap_vert, size: 20), label: const Text('Arrange')),
+            const SizedBox(width: 8),
+          ],
+          OutlinedButton.icon(onPressed: () => openBepSectionEditor(context), icon: const Icon(Icons.add, size: 20), label: const Text('Add Section')),
           const SizedBox(width: 8),
         ],
         if (admin)
-          FilledButton.icon(onPressed: () => uploadBepFile(context), icon: const Icon(Icons.upload_file, size: 20), label: const Text('Upload File')),
+          FilledButton.icon(onPressed: () => uploadBepFile(context), icon: const Icon(Icons.upload_file, size: 20), label: Text(wide ? 'Upload File' : 'File')),
+        if (admin && !wide)
+          PopupMenuButton<String>(
+            tooltip: 'More',
+            onSelected: (v) {
+              if (v == 'add') openBepSectionEditor(context);
+              if (v == 'arrange') _arrange(s);
+              if (v == 'word') _importWord(s);
+            },
+            itemBuilder: (_) => [
+              const PopupMenuItem(value: 'add', child: Text('Add section')),
+              if (s.bepSections.length > 1) const PopupMenuItem(value: 'arrange', child: Text('Arrange sections')),
+              const PopupMenuItem(value: 'word', child: Text('Import Word file')),
+            ],
+          ),
         const SizedBox(width: 8),
       ],
     );
@@ -129,7 +275,14 @@ class _BepScreenState extends State<BepScreen> {
       keyFor: _keyFor,
       onJump: _jump,
       onTemplate: () => _addTemplate(s),
-      onMove: (i, by) => _move(s, i, by),
+      onArrange: () => _arrange(s),
+      onImport: () => _importWord(s),
+      open: _open,
+      onToggle: (id) => setState(() => _open.contains(id) ? _open.remove(id) : _open.add(id)),
+      onAll: (all) => setState(() {
+        _open.clear();
+        if (all) _open.addAll(s.bepSections.map((x) => x.id));
+      }),
     );
     final files = _FilesPanel(trade: _trade, onTrade: (t) => setState(() => _trade = t));
 
@@ -142,7 +295,7 @@ class _BepScreenState extends State<BepScreen> {
             color: c.surface,
             child: TabBar(tabs: [
               const Tab(text: 'Rules & Notes'),
-              Tab(text: 'Files (${s.bepFiles.length})'),
+              Tab(text: 'Files (${s.bepFiles.where((f) => !f.isMain).length})'),
             ]),
           ),
           Expanded(child: TabBarView(children: [sections, files])),
@@ -172,11 +325,22 @@ class _BepScreenState extends State<BepScreen> {
 // =====================================================================
 
 class _Sections extends StatelessWidget {
-  const _Sections({required this.keyFor, required this.onJump, required this.onTemplate, required this.onMove});
+  const _Sections({
+    required this.keyFor,
+    required this.onJump,
+    required this.onTemplate,
+    required this.onArrange,
+    required this.onImport,
+    required this.open,
+    required this.onToggle,
+    required this.onAll,
+  });
   final GlobalKey Function(String id) keyFor;
   final void Function(String id) onJump;
-  final VoidCallback onTemplate;
-  final void Function(int index, int by) onMove;
+  final VoidCallback onTemplate, onArrange, onImport;
+  final Set<String> open;
+  final void Function(String id) onToggle;
+  final void Function(bool all) onAll;
 
   @override
   Widget build(BuildContext context) {
@@ -187,37 +351,56 @@ class _Sections extends StatelessWidget {
     final pad = isWide(context) ? 24.0 : 14.0;
 
     if (list.isEmpty) {
-      return EmptyState(
-        icon: Icons.menu_book_outlined,
-        title: 'No BEP yet',
-        body: admin
-            ? 'Add the rules every trade must follow: naming conventions, levels, coordinates, software versions, upload schedule and more.'
-            : 'The Christman VDC team will post the BIM Execution Plan here.',
-        action: admin
-            ? Wrap(spacing: 8, runSpacing: 8, alignment: WrapAlignment.center, children: [
-                FilledButton.icon(onPressed: onTemplate, icon: const Icon(Icons.auto_awesome_outlined, size: 18), label: const Text('Start with standard BEP sections')),
-                OutlinedButton.icon(onPressed: () => openBepSectionForm(context), icon: const Icon(Icons.add, size: 18), label: const Text('Blank section')),
-              ])
-            : null,
-      );
+      return ListView(padding: EdgeInsets.all(pad), children: [
+        const _MainFileCard(),
+        const SizedBox(height: 20),
+        EmptyState(
+          icon: Icons.menu_book_outlined,
+          title: 'No BEP sections yet',
+          body: admin
+              ? 'Add the rules every trade must follow: naming conventions, levels, coordinates, software versions, upload schedule and more. You can also import your BEP Word file.'
+              : 'The Christman VDC team will post the BIM Execution Plan here.',
+          action: admin
+              ? Wrap(spacing: 8, runSpacing: 8, alignment: WrapAlignment.center, children: [
+                  FilledButton.icon(onPressed: onTemplate, icon: const Icon(Icons.auto_awesome_outlined, size: 18), label: const Text('Start with standard BEP sections')),
+                  OutlinedButton.icon(onPressed: onImport, icon: const Icon(Icons.description_outlined, size: 18), label: const Text('Import Word file')),
+                  OutlinedButton.icon(onPressed: () => openBepSectionEditor(context), icon: const Icon(Icons.add, size: 18), label: const Text('Blank section')),
+                ])
+              : null,
+        ),
+      ]);
     }
 
     final updated = list.map((x) => x.updatedAt).reduce((a, b) => a.isAfter(b) ? a : b);
+    final blocks = {for (final x in list) x.id: x.blocks};
+    final long = {for (final x in list) if (blocksHeightEstimate(blocks[x.id]!) > 18) x.id};
+    final allOpen = long.isNotEmpty && long.every(open.contains);
     return SingleChildScrollView(
       padding: EdgeInsets.fromLTRB(pad, pad, pad, 60),
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 900),
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Text('Last updated ${weekdayDate(updated)}', style: TextStyle(fontSize: 13, color: c.muted)),
-            const SizedBox(height: 10),
+            const _MainFileCard(),
+            const SizedBox(height: 16),
             // Contents
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(color: c.surface2, borderRadius: BorderRadius.circular(12), border: Border.all(color: c.line)),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('CONTENTS', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 0.8, color: c.muted)),
-                const SizedBox(height: 8),
+                Row(children: [
+                  Text('CONTENTS', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 0.8, color: c.muted)),
+                  const SizedBox(width: 10),
+                  Expanded(child: Text('Last updated ${weekdayDate(updated)}', style: TextStyle(fontSize: 12, color: c.muted))),
+                  if (long.isNotEmpty)
+                    TextButton.icon(
+                      onPressed: () => onAll(!allOpen),
+                      icon: Icon(allOpen ? Icons.unfold_less : Icons.unfold_more, size: 18),
+                      label: Text(allOpen ? 'Fold all' : 'Unfold all'),
+                    ),
+                  if (admin && list.length > 1) TextButton.icon(onPressed: onArrange, icon: const Icon(Icons.swap_vert, size: 18), label: const Text('Arrange')),
+                ]),
+                const SizedBox(height: 6),
                 Wrap(spacing: 6, runSpacing: 6, children: [
                   for (var i = 0; i < list.length; i++)
                     ActionChip(
@@ -235,16 +418,17 @@ class _Sections extends StatelessWidget {
                 child: _SectionCard(
                   number: i + 1,
                   section: list[i],
+                  blocks: blocks[list[i].id]!,
                   admin: admin,
-                  first: i == 0,
-                  last: i == list.length - 1,
-                  onMove: (by) => onMove(i, by),
+                  foldable: long.contains(list[i].id),
+                  unfolded: open.contains(list[i].id),
+                  onToggle: () => onToggle(list[i].id),
                 ),
               ),
             if (admin)
               Align(
                 alignment: Alignment.centerLeft,
-                child: OutlinedButton.icon(onPressed: () => openBepSectionForm(context), icon: const Icon(Icons.add, size: 18), label: const Text('Add Section')),
+                child: OutlinedButton.icon(onPressed: () => openBepSectionEditor(context), icon: const Icon(Icons.add, size: 18), label: const Text('Add Section')),
               ),
           ]),
         ),
@@ -254,189 +438,250 @@ class _Sections extends StatelessWidget {
 }
 
 class _SectionCard extends StatelessWidget {
-  const _SectionCard({required this.number, required this.section, required this.admin, required this.first, required this.last, required this.onMove});
+  const _SectionCard({
+    required this.number,
+    required this.section,
+    required this.blocks,
+    required this.admin,
+    required this.foldable,
+    required this.unfolded,
+    required this.onToggle,
+  });
   final int number;
   final BepSection section;
-  final bool admin, first, last;
-  final void Function(int by) onMove;
+  final List<BepBlock> blocks;
+  final bool admin, foldable, unfolded;
+  final VoidCallback onToggle;
 
   @override
   Widget build(BuildContext context) {
     final s = context.read<AppState>();
     final c = CwColors.of(context);
+    final view = blocks.isEmpty ? Text('Nothing written yet.', style: TextStyle(color: c.muted, fontStyle: FontStyle.italic)) : BepBlocksView(blocks);
+    final folded = foldable && !unfolded;
     return Container(
       decoration: BoxDecoration(color: c.card, borderRadius: BorderRadius.circular(12), border: Border.all(color: c.line)),
+      clipBehavior: Clip.antiAlias,
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Container(
-          padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
-          decoration: BoxDecoration(border: Border(bottom: BorderSide(color: c.line))),
-          child: Row(children: [
-            Container(
-              width: 28,
-              height: 28,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(color: c.accent, borderRadius: BorderRadius.circular(8)),
-              child: Text('$number', style: TextStyle(color: c.accentInk, fontWeight: FontWeight.w800)),
-            ),
-            const SizedBox(width: 10),
-            Expanded(child: Text(section.title, style: condensed(21, color: c.ink))),
-            if (admin) ...[
-              IconButton(tooltip: 'Move up', onPressed: first ? null : () => onMove(-1), icon: const Icon(Icons.arrow_upward, size: 20)),
-              IconButton(tooltip: 'Move down', onPressed: last ? null : () => onMove(1), icon: const Icon(Icons.arrow_downward, size: 20)),
-              IconButton(tooltip: 'Edit', onPressed: () => openBepSectionForm(context, section: section), icon: const Icon(Icons.edit_outlined, size: 20)),
-              IconButton(
-                tooltip: 'Delete',
-                onPressed: () async {
-                  if (!await confirm(context, 'Delete "${section.title}"?', 'This section is removed from the BEP for everyone.', ok: 'Delete', danger: true)) return;
-                  try {
-                    await s.api.deleteBepSection(section.id);
-                    await s.reloadBep();
-                  } catch (e) {
-                    if (context.mounted) showError(context, e);
-                  }
-                },
-                icon: const Icon(Icons.delete_outline, size: 20),
+        InkWell(
+          onTap: foldable ? onToggle : null,
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
+            decoration: BoxDecoration(border: Border(bottom: BorderSide(color: c.line))),
+            child: Row(children: [
+              Container(
+                width: 28,
+                height: 28,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(color: c.accent, borderRadius: BorderRadius.circular(8)),
+                child: Text('$number', style: TextStyle(color: c.accentInk, fontWeight: FontWeight.w800)),
               ),
-            ],
-          ]),
+              const SizedBox(width: 10),
+              Expanded(child: Text(section.title, style: condensed(21, color: c.ink))),
+              if (foldable)
+                IconButton(tooltip: unfolded ? 'Fold' : 'Show all', onPressed: onToggle, icon: Icon(unfolded ? Icons.unfold_less : Icons.unfold_more, size: 20)),
+              if (admin) ...[
+                IconButton(tooltip: 'Edit', onPressed: () => openBepSectionEditor(context, section: section), icon: const Icon(Icons.edit_outlined, size: 20)),
+                IconButton(
+                  tooltip: 'Delete',
+                  onPressed: () async {
+                    if (!await confirm(context, 'Delete "${section.title}"?', 'This section is removed from the BEP for everyone.', ok: 'Delete', danger: true)) return;
+                    try {
+                      await s.api.deleteBepSection(section.id);
+                      await s.reloadBep();
+                    } catch (e) {
+                      if (context.mounted) showError(context, e);
+                    }
+                  },
+                  icon: const Icon(Icons.delete_outline, size: 20),
+                ),
+              ],
+            ]),
+          ),
         ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-          child: section.body.trim().isEmpty
-              ? Text('Nothing written yet.', style: TextStyle(color: c.muted, fontStyle: FontStyle.italic))
-              : BepText(section.body),
+          padding: EdgeInsets.fromLTRB(16, 12, 16, foldable ? 4 : 16),
+          child: folded
+              ? Stack(children: [
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 340),
+                    child: ClipRect(child: SingleChildScrollView(physics: const NeverScrollableScrollPhysics(), child: view)),
+                  ),
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    height: 90,
+                    child: IgnorePointer(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [c.card.withValues(alpha: 0), c.card],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ])
+              : view,
         ),
+        if (foldable)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+            child: Center(
+              child: TextButton.icon(
+                onPressed: onToggle,
+                icon: Icon(unfolded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down),
+                label: Text(unfolded ? 'Show less' : 'Show more'),
+              ),
+            ),
+          ),
       ]),
     );
   }
 }
 
-/// Shows BEP text with light formatting:
-///   "# Heading"        a small heading
-///   "- point"          a bullet
-///   "Label: value"     the label in bold (short labels only)
-class BepText extends StatelessWidget {
-  const BepText(this.text, {super.key});
-  final String text;
+// =====================================================================
+// Project BEP File (the main document, at the top)
+// =====================================================================
+
+class _MainFileCard extends StatefulWidget {
+  const _MainFileCard();
+
+  @override
+  State<_MainFileCard> createState() => _MainFileCardState();
+}
+
+class _MainFileCardState extends State<_MainFileCard> {
+  String? _busy; // 'open', 'download', 'upload'
+
+  Future<void> _get(BepFile f, {required bool open}) async {
+    final s = context.read<AppState>();
+    setState(() => _busy = open ? 'open' : 'download');
+    try {
+      final bytes = await s.api.fileBytes(f.path);
+      if (open) {
+        await openFileBytes(bytes, f.fileName, mimeType: Api.mimeFor(f.fileName));
+      } else {
+        final msg = await saveOrShareFile(bytes, safeFileName(f.fileName), mimeType: Api.mimeFor(f.fileName));
+        if (msg != null && mounted) showInfo(context, msg);
+      }
+    } catch (e) {
+      if (mounted) showError(context, e);
+    } finally {
+      if (mounted) setState(() => _busy = null);
+    }
+  }
+
+  Future<void> _upload(BepFile? old) async {
+    final s = context.read<AppState>();
+    final picked = await pickOneFile(extensions: const ['pdf', 'docx'], label: 'BEP document');
+    if (picked == null || !mounted) return;
+    setState(() => _busy = 'upload');
+    try {
+      final path = await s.api.uploadFile(s.project!.id, 'bep', picked.bytes, picked.name);
+      await s.api.saveBepFile(values: {
+        'project_id': s.project!.id,
+        'name': picked.name.replaceFirst(RegExp(r'\.[^.]+$'), ''),
+        'description': '',
+        'category': BepFile.mainCategory,
+        'trade_id': null,
+        'path': path,
+        'file_name': picked.name,
+        'size_bytes': picked.bytes.length,
+      });
+      // The old one stays in the Files list as the previous version.
+      if (old != null) await s.api.saveBepFile(id: old.id, values: {'category': 'BEP document', 'name': '${old.name} (previous)'});
+      await s.reloadBep();
+    } catch (e) {
+      if (mounted) showError(context, e);
+    } finally {
+      if (mounted) setState(() => _busy = null);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final s = context.watch<AppState>();
     final c = CwColors.of(context);
-    final base = TextStyle(fontSize: 15, height: 1.45, color: c.ink);
-    final out = <Widget>[];
-    for (final raw in text.split('\n')) {
-      final line = raw.trimRight();
-      if (line.trim().isEmpty) {
-        out.add(const SizedBox(height: 8));
-      } else if (line.startsWith('#')) {
-        out.add(Padding(
-          padding: EdgeInsets.only(top: out.isEmpty ? 0 : 6, bottom: 4),
-          child: Text(line.replaceFirst(RegExp(r'^#+\s*'), '').toUpperCase(),
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, letterSpacing: 0.7, color: c.accentText)),
-        ));
-      } else if (RegExp(r'^\s*[-*•]\s+').hasMatch(line)) {
-        final indent = RegExp(r'^\s*').stringMatch(line)!.length;
-        out.add(Padding(
-          padding: EdgeInsets.only(left: 4.0 + indent * 8, bottom: 2),
-          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Padding(
-              padding: const EdgeInsets.only(top: 8, right: 10),
-              child: Container(width: 6, height: 6, decoration: BoxDecoration(color: c.accent, shape: BoxShape.circle)),
-            ),
-            Expanded(child: _labelled(line.replaceFirst(RegExp(r'^\s*[-*•]\s+'), ''), base)),
-          ]),
-        ));
-      } else {
-        out.add(Padding(padding: const EdgeInsets.only(bottom: 2), child: _labelled(line, base)));
-      }
-    }
-    return SelectionArea(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: out));
-  }
+    final admin = s.canEditBep;
+    final main = s.bepFiles.where((f) => f.isMain).firstOrNull;
+    final label = Text('PROJECT BEP FILE', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 0.9, color: c.accentText));
+    Widget spin() => const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2));
 
-  Widget _labelled(String line, TextStyle base) {
-    final m = RegExp(r'^([^:]{1,32}):(\s|$)(.*)$').firstMatch(line);
-    if (m == null || m.group(1)!.contains('http')) return Text(line, style: base);
-    return Text.rich(TextSpan(style: base, children: [
-      TextSpan(text: '${m.group(1)}: ', style: const TextStyle(fontWeight: FontWeight.w700)),
-      TextSpan(text: m.group(3)),
-    ]));
-  }
-}
-
-Future<void> openBepSectionForm(BuildContext context, {BepSection? section}) async {
-  final s = context.read<AppState>();
-  final title = TextEditingController(text: section?.title ?? '');
-  final body = TextEditingController(text: section?.body ?? '');
-  var busy = false;
-  String? error;
-  await showDialog<void>(
-    context: context,
-    builder: (ctx) => StatefulBuilder(
-      builder: (ctx, setState) => AlertDialog(
-        title: Text(section == null ? 'New BEP section' : 'Edit section'),
-        content: SizedBox(
-          width: 640,
-          child: SingleChildScrollView(
-            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              const FieldLabel('Section title', hint: 'e.g. Model Naming Convention'),
-              TextField(controller: title, autofocus: section == null),
-              const SizedBox(height: 10),
-              const FieldLabel('Rules and notes'),
-              TextField(
-                controller: body,
-                minLines: 10,
-                maxLines: 24,
-                style: const TextStyle(fontSize: 14, height: 1.4),
-                decoration: const InputDecoration(hintText: '# Heading\n- A rule or point\nLabel: value'),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Tips: start a line with "# " for a heading, "- " for a bullet. "Label: value" shows the label in bold.',
-                style: TextStyle(fontSize: 12.5, color: CwColors.of(ctx).muted),
-              ),
-              if (error != null) ...[
-                const SizedBox(height: 8),
-                Text(error!, style: TextStyle(color: CwColors.of(ctx).urgentText, fontWeight: FontWeight.w600)),
-              ],
+    if (main == null) {
+      if (!admin) return const SizedBox.shrink();
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: c.dashed, width: 1.5), color: c.surface2),
+        child: Row(children: [
+          Icon(Icons.picture_as_pdf_outlined, size: 34, color: c.muted),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              label,
+              const SizedBox(height: 2),
+              Text('Upload the main BEP document (PDF). Everyone on the project can open it from here.', style: TextStyle(fontSize: 14, color: c.ink2)),
             ]),
           ),
-        ),
-        actions: [
-          TextButton(onPressed: busy ? null : () => Navigator.pop(ctx), child: const Text('Cancel')),
-          FilledButton(
-            onPressed: busy
-                ? null
-                : () async {
-                    if (title.text.trim().isEmpty) {
-                      setState(() => error = 'Give the section a title.');
-                      return;
-                    }
-                    setState(() {
-                      busy = true;
-                      error = null;
-                    });
-                    try {
-                      if (section == null) {
-                        final next = s.bepSections.isEmpty ? 0 : s.bepSections.map((x) => x.sort).reduce((a, b) => a > b ? a : b) + 1;
-                        await s.api.saveBepSection(values: {'project_id': s.project!.id, 'title': title.text.trim(), 'body': body.text, 'sort': next});
-                      } else {
-                        await s.api.saveBepSection(id: section.id, values: {'title': title.text.trim(), 'body': body.text});
-                      }
-                      await s.reloadBep();
-                      if (ctx.mounted) Navigator.pop(ctx);
-                    } catch (e) {
-                      setState(() {
-                        busy = false;
-                        error = e.toString();
-                      });
-                    }
-                  },
-            child: busy ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Save'),
+          const SizedBox(width: 10),
+          FilledButton.icon(
+            onPressed: _busy != null ? null : () => _upload(null),
+            icon: _busy == 'upload' ? spin() : const Icon(Icons.upload_file, size: 18),
+            label: const Text('Upload BEP File'),
           ),
-        ],
+        ]),
+      );
+    }
+
+    final buttons = Wrap(spacing: 8, runSpacing: 8, children: [
+      FilledButton.icon(
+        onPressed: _busy != null ? null : () => _get(main, open: true),
+        icon: _busy == 'open' ? spin() : const Icon(Icons.open_in_new, size: 18),
+        label: const Text('Open'),
       ),
-    ),
-  );
+      OutlinedButton.icon(
+        onPressed: _busy != null ? null : () => _get(main, open: false),
+        icon: _busy == 'download' ? spin() : const Icon(Icons.download, size: 18),
+        label: const Text('Download'),
+      ),
+      if (admin)
+        TextButton.icon(
+          onPressed: _busy != null ? null : () => _upload(main),
+          icon: _busy == 'upload' ? spin() : const Icon(Icons.swap_horiz, size: 18),
+          label: const Text('Replace'),
+        ),
+    ]);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: c.card,
+        borderRadius: BorderRadius.circular(12),
+        border: Border(left: BorderSide(color: c.accent, width: 5), top: BorderSide(color: c.line), right: BorderSide(color: c.line), bottom: BorderSide(color: c.line)),
+      ),
+      child: LayoutBuilder(builder: (context, box) {
+        final info = Row(children: [
+          Icon(fileIcon(main.fileName), size: 40, color: c.accent),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              label,
+              const SizedBox(height: 2),
+              Text(main.name, style: condensed(22, color: c.ink)),
+              Text('${main.fileName} · ${fileSizeText(main.sizeBytes)} · updated ${weekdayDate(main.createdAt)}', style: TextStyle(fontSize: 13, color: c.muted)),
+            ]),
+          ),
+        ]);
+        if (box.maxWidth < 620) {
+          return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [info, const SizedBox(height: 12), buttons]);
+        }
+        return Row(children: [Expanded(child: info), const SizedBox(width: 12), buttons]);
+      }),
+    );
+  }
 }
 
 // =====================================================================
@@ -465,7 +710,7 @@ class _FilesPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = context.watch<AppState>();
     final c = CwColors.of(context);
-    final files = s.bepFiles.where((f) => trade == null || f.tradeId == null || f.tradeId == trade).toList();
+    final files = s.bepFiles.where((f) => !f.isMain && (trade == null || f.tradeId == null || f.tradeId == trade)).toList();
     final cats = <String>[
       ...BepFile.categories.where((k) => files.any((f) => f.category == k)),
       ...{for (final f in files) f.category}.where((k) => !BepFile.categories.contains(k)),
