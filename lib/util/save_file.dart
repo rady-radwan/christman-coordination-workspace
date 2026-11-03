@@ -33,3 +33,18 @@ Future<String?> saveOrShareFile(Uint8List bytes, String fileName, {String mimeTy
 
 /// Removes characters Windows does not allow in file names.
 String safeFileName(String s) => s.replaceAll(RegExp(r'[\\/:*?"<>|]+'), '-').replaceAll(RegExp(r'\s+'), ' ').trim();
+
+/// Opens a file right away in the program that normally opens it (Windows: e.g. the PDF
+/// reader; phones: the share menu, where "Open in…" apps are listed).
+Future<void> openFileBytes(Uint8List bytes, String fileName, {String mimeType = 'application/octet-stream'}) async {
+  final dir = await getTemporaryDirectory();
+  final folder = Directory('${dir.path}/christman-coordination');
+  await folder.create(recursive: true);
+  final file = File('${folder.path}/${safeFileName(fileName)}');
+  await file.writeAsBytes(bytes, flush: true);
+  if (Platform.isAndroid || Platform.isIOS) {
+    await sp.Share.shareXFiles([sp.XFile(file.path, mimeType: mimeType, name: fileName)], subject: fileName);
+    return;
+  }
+  await launchUrl(Uri.file(file.path));
+}

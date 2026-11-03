@@ -4,7 +4,9 @@ import 'package:provider/provider.dart';
 import '../config.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
+import '../util/dates.dart';
 import '../widgets/common.dart';
+import '../widgets/update_widgets.dart';
 import 'appearance_panel.dart';
 import 'notifications_screen.dart';
 import 'project_setup_screen.dart';
@@ -69,6 +71,8 @@ class SettingsScreen extends StatelessWidget {
                       ]),
                     ]),
                   ),
+                  const SizedBox(height: 16),
+                  const _UpdatesPanel(),
                   const SizedBox(height: 16),
                   Text('$appName · version $appVersion\nThe Christman Company', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: c.muted)),
                 ]),
@@ -137,6 +141,61 @@ class _ProfileState extends State<_Profile> {
             child: const Text('Save'),
           ),
         ),
+      ]),
+    );
+  }
+}
+
+/// This version, and a button to look for a newer one.
+class _UpdatesPanel extends StatefulWidget {
+  const _UpdatesPanel();
+
+  @override
+  State<_UpdatesPanel> createState() => _UpdatesPanelState();
+}
+
+class _UpdatesPanelState extends State<_UpdatesPanel> {
+  bool _checking = false;
+
+  Future<void> _check() async {
+    final s = context.read<AppState>();
+    setState(() => _checking = true);
+    final found = await s.checkForUpdate();
+    if (!mounted) return;
+    setState(() => _checking = false);
+    if (found) {
+      await showUpdateDialog(context, s.update!);
+    } else {
+      showInfo(context, 'You have the newest version ($appVersion).');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.watch<AppState>();
+    final c = CwColors.of(context);
+    final r = s.update;
+    return Panel(
+      padding: const EdgeInsets.all(18),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Text('App version', style: condensed(22, color: c.ink)),
+        const SizedBox(height: 6),
+        Text(
+          r == null
+              ? 'You have version $appVersion.${s.updateCheckedAt == null ? '' : ' Last checked ${timeText(s.updateCheckedAt!)}.'}'
+              : 'You have version $appVersion. Version ${r.version} is ready to install.',
+          style: TextStyle(color: c.ink2),
+        ),
+        const SizedBox(height: 12),
+        Wrap(spacing: 10, runSpacing: 10, children: [
+          if (r != null)
+            FilledButton.icon(onPressed: () => showUpdateDialog(context, r), icon: const Icon(Icons.system_update_alt), label: Text('Get version ${r.version}')),
+          OutlinedButton.icon(
+            onPressed: _checking ? null : _check,
+            icon: _checking ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.refresh),
+            label: const Text('Check for updates'),
+          ),
+        ]),
       ]),
     );
   }

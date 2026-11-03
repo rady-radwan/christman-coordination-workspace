@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'util/bep_blocks.dart';
+
 /// Coordination item status workflow:
 /// Open -> Assigned / In Review -> Response Submitted -> Model Updated – Verify -> Resolved / Closed,
 /// plus On Hold and Voided. Only the admin or a coordinator can close, void, hold or reopen.
@@ -492,6 +494,7 @@ class AppNotification {
         'signup' => Icons.person_add_alt_1_outlined,
         'suggestion' => Icons.group_add_outlined,
         'overdue' => Icons.alarm_outlined,
+        'announcement' => Icons.campaign_outlined,
         _ => Icons.notifications_none,
       };
 
@@ -775,21 +778,30 @@ class ScheduleTask {
 // ===================================================================== BEP
 
 class BepSection {
-  BepSection({required this.id, required this.projectId, required this.title, this.body = '', this.sort = 0, this.updatedBy, required this.updatedAt});
+  BepSection({required this.id, required this.projectId, required this.title, this.body = '', this.content, this.sort = 0, this.updatedBy, required this.updatedAt});
 
   final String id;
   final String projectId;
   final String title;
+
+  /// Plain-text copy (older sections only have this).
   final String body;
+
+  /// Rich content (tables, lists, note boxes, pictures), or null for older sections.
+  final Object? content;
   final int sort;
   final String? updatedBy;
   final DateTime updatedAt;
+
+  /// The section as blocks (older plain-text sections are converted).
+  List<BepBlock> get blocks => content is List ? blocksFromJson(content) : blocksFromText(body);
 
   factory BepSection.fromJson(Map<String, dynamic> j) => BepSection(
         id: j['id'] as String,
         projectId: j['project_id'] as String,
         title: (j['title'] ?? '') as String,
         body: (j['body'] ?? '') as String,
+        content: j['content'],
         sort: (j['sort'] ?? 0) as int,
         updatedBy: j['updated_by'] as String?,
         updatedAt: _ts(j['updated_at']) ?? DateTime.now(),
@@ -825,6 +837,10 @@ class BepFile {
   final DateTime createdAt;
 
   static const categories = ['BEP document', 'Template', 'Shared model', 'Families / content', 'Standards', 'Other'];
+
+  /// The main BEP document shown at the top of the BEP page.
+  static const mainCategory = 'Project BEP File';
+  bool get isMain => category == mainCategory;
 
   factory BepFile.fromJson(Map<String, dynamic> j) => BepFile(
         id: j['id'] as String,
@@ -896,4 +912,47 @@ String fileSizeText(int bytes) {
   if (bytes < 1024) return '$bytes B';
   if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(0)} KB';
   return '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
+}
+
+/// A message from the admin to everyone on the project.
+class Announcement {
+  Announcement({
+    required this.id,
+    required this.projectId,
+    required this.title,
+    this.body = '',
+    this.level = 'info',
+    this.pinned = false,
+    this.createdBy,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  final String id;
+  final String projectId;
+  final String title;
+  final String body;
+
+  /// info, important or urgent
+  final String level;
+  final bool pinned;
+  final String? createdBy;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  static const levels = ['info', 'important', 'urgent'];
+
+  static String levelLabel(String l) => switch (l) { 'urgent' => 'Urgent', 'important' => 'Important', _ => 'Info' };
+
+  factory Announcement.fromJson(Map<String, dynamic> j) => Announcement(
+        id: j['id'] as String,
+        projectId: j['project_id'] as String,
+        title: (j['title'] ?? '') as String,
+        body: (j['body'] ?? '') as String,
+        level: (j['level'] ?? 'info') as String,
+        pinned: j['pinned'] == true,
+        createdBy: j['created_by'] as String?,
+        createdAt: _ts(j['created_at']) ?? DateTime.now(),
+        updatedAt: _ts(j['updated_at']) ?? DateTime.now(),
+      );
 }

@@ -437,6 +437,25 @@ class Api {
         await _db.storage.from(_bucket).remove([r.path]);
       });
 
+  // ------------------------------------------------------------------ announcements
+
+  Future<List<Announcement>> announcements(String projectId) => guard(() async {
+        final rows = await _db.from('announcements').select().eq('project_id', projectId).order('created_at', ascending: false);
+        return rows.map(Announcement.fromJson).toList();
+      });
+
+  Future<void> saveAnnouncement({String? id, required Map<String, dynamic> values}) => guard(() async {
+        if (id == null) {
+          await _db.from('announcements').insert(values);
+        } else {
+          await _mustChange(_db.from('announcements').update(values).eq('id', id).select());
+        }
+      });
+
+  Future<void> deleteAnnouncement(String id) => guard(() async {
+        await _mustChange(_db.from('announcements').delete().eq('id', id).select());
+      });
+
   // ------------------------------------------------------------------ files
 
   /// Largest file the server takes (Supabase free plan: 50 MB per file).
@@ -541,6 +560,11 @@ class Api {
   Future<void> markRead(List<int> ids) => guard(() async {
         if (ids.isEmpty) return;
         await _db.from('notifications').update({'read_at': DateTime.now().toUtc().toIso8601String()}).inFilter('id', ids);
+      });
+
+  Future<void> deleteNotifications(List<int> ids) => guard(() async {
+        if (ids.isEmpty) return;
+        await _db.from('notifications').delete().inFilter('id', ids);
       });
 
   Future<void> clearNotifications() => guard(() async {

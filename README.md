@@ -24,15 +24,21 @@ All of these rules, plus the automatic item numbering (`NMC-CL-001`), live in th
 1. Accounts, projects, trades and items — version 0.1
 2. Photos with markup, priority colors, themes, font and text size per person — version 0.2
 3. Ball with several trades, coordination meetings with PDF minutes, coordination schedule, project status bar — version 0.3
-4. **Next-meeting agenda and prep list, BIM Execution Plan with files, Excel clash reports viewer** ← version 0.4
+4. Next-meeting agenda and prep list, BIM Execution Plan with files, Excel clash reports viewer — version 0.4
+5. **Announcements, Word-like BEP sections and Word import, Excel-style clash sheets, notification clean-up, new-version alert** ← version 0.5
    Still to come: voice messages, PDF attachments, sign-off matrix, model tracker, dashboard, reports, email alerts
-5. Android release
-6. iOS
+6. Android release
+7. iOS
 
 ## Builds
 
 Pushing to `main` makes GitHub Actions analyze and test the code, build the Windows installer
-(Inno Setup, no admin rights needed) and the Android APKs, and save them on the `installer` branch.
+(Inno Setup, no admin rights needed) and the Android APKs, and save them on the `installer` branch
+together with `version.json`. Installed apps read `version.json` and offer the new version
+(with the points for that version from `WHATS-NEW.md`) and a download button.
+
+To release a new version: bump `version:` in `pubspec.yaml` and `appVersion` in `lib/config.dart`,
+add a section to `WHATS-NEW.md`, and push to `main`.
 
 ## Server setup
 
