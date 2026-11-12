@@ -89,6 +89,9 @@ if kts.exists():
             fail("no buildTypes block in build.gradle.kts")
         g = g.replace("    buildTypes {", signing, 1)
         g = g.replace('signingConfig = signingConfigs.getByName("debug")', 'signingConfig = signingConfigs.getByName("release")')
+    if "checkReleaseBuilds" not in g:
+        # Newer Android lint crashes on some plugin sources (file_selector); lint is not needed to build.
+        g = g.replace("    buildTypes {", "    lint {\n        checkReleaseBuilds = false\n        abortOnError = false\n    }\n\n    buildTypes {", 1)
     kts.write_text(g, encoding="utf-8")
     print("build.gradle.kts patched")
 elif groovy.exists():
@@ -114,6 +117,8 @@ elif groovy.exists():
     buildTypes {"""
         g = g.replace("    buildTypes {", signing, 1)
         g = g.replace("signingConfig signingConfigs.debug", "signingConfig signingConfigs.release")
+    if "checkReleaseBuilds" not in g:
+        g = g.replace("    buildTypes {", "    lintOptions {\n        checkReleaseBuilds false\n        abortOnError false\n    }\n\n    buildTypes {", 1)
     groovy.write_text(g, encoding="utf-8")
     print("build.gradle patched")
 else:
