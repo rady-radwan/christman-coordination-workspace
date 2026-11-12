@@ -1,0 +1,13 @@
+{
+  "version": "0.6.0",
+  "notes": [
+    "Item page: the photo and the description sit side by side; set the photo size and the description text size in Settings",
+    "Drag the edges between panels (sidebar, item list, item page, facts) to make them wider or narrower",
+    "Schedule: zoom in and out, or fit the whole schedule to the screen",
+    "Lighter priority colors on item cards (adjustable in Settings)"
+  ],
+  "windows": "ChristmanCoordination-Setup-0.6.0.exe",
+  "android": "ChristmanCoordination-0.6.0-android.apk",
+  "android_older": "ChristmanCoordination-0.6.0-android-older-phones.apk",
+  "published": "2026-11-12T21:31:25.155931+00:00"
+}
