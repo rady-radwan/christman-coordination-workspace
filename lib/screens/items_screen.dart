@@ -380,7 +380,8 @@ class ItemCard extends StatelessWidget {
       child: Opacity(
         opacity: closed ? 0.62 : 1,
         child: Material(
-          color: closed ? c.card : look.tint,
+          // How strong the priority color is follows Settings (half of the old strength by default).
+          color: closed ? c.card : mix(look.solid, (c.dark ? 0.15 : 0.08) * s.view.cardTint, c.card),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
             side: BorderSide(color: selected ? c.accent : (closed ? c.line : look.border), width: selected ? 2 : 1),

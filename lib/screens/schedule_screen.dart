@@ -191,27 +191,76 @@ class ProjectStatusStrip extends StatelessWidget {
 
 // ------------------------------------------------------------------ timeline
 
-class _Timeline extends StatelessWidget {
+class _Timeline extends StatefulWidget {
   const _Timeline({required this.tasks});
   final List<ScheduleTask> tasks;
+
+  @override
+  State<_Timeline> createState() => _TimelineState();
+}
+
+class _TimelineState extends State<_Timeline> {
+  final _scroll = ScrollController();
+  bool _scrolledToToday = false;
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final s = context.watch<AppState>();
     final c = CwColors.of(context);
-    final today = dayOnly(DateTime.now());
-    final wide = MediaQuery.sizeOf(context).width >= 700;
+    return LayoutBuilder(builder: (context, box) {
+      final wide = MediaQuery.sizeOf(context).width >= 700;
+      final labelW = wide ? s.view.taskColW.clamp(ViewPrefs.taskColMin, box.maxWidth * 0.5).toDouble() : 150.0;
+      final tasks = widget.tasks;
+      final today = dayOnly(DateTime.now());
+      var first = tasks.map((t) => t.start).reduce((a, b) => a.isBefore(b) ? a : b);
+      var last = tasks.map((t) => t.end).reduce((a, b) => a.isAfter(b) ? a : b);
+      if (today.isBefore(first)) first = today;
+      if (today.isAfter(last)) last = today;
+      first = first.subtract(Duration(days: first.weekday - 1));
+      last = last.add(Duration(days: 7 - last.weekday + 7));
+      final days = last.difference(first).inDays + 1;
+      final barsW = box.maxWidth - labelW - (wide ? 9 : 0) - 2;
+      final fitW = (barsW / days).clamp(1.0, ViewPrefs.dayMax).toDouble();
+      final fit = s.view.dayW <= 0;
+      final dayW = fit ? fitW : s.view.dayW;
+      void zoom(double to) => s.setSizes(s.view.copyWith(dayW: to.clamp(ViewPrefs.dayMin, ViewPrefs.dayMax).toDouble()));
 
-    var first = tasks.map((t) => t.start).reduce((a, b) => a.isBefore(b) ? a : b);
-    var last = tasks.map((t) => t.end).reduce((a, b) => a.isAfter(b) ? a : b);
-    if (today.isBefore(first)) first = today;
-    if (today.isAfter(last)) last = today;
-    // Start on a Monday, a week of air at the end.
-    first = first.subtract(Duration(days: first.weekday - 1));
-    last = last.add(Duration(days: 7 - last.weekday + 7));
-    final days = last.difference(first).inDays + 1;
-    final dayW = wide ? 20.0 : 14.0;
-    final labelW = wide ? 280.0 : 150.0;
+      final controls = Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Wrap(spacing: 6, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
+          Text('Zoom', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: c.ink2)),
+          IconButton(tooltip: 'Zoom out', onPressed: () => zoom(dayW / 1.25), icon: const Icon(Icons.zoom_out)),
+          SizedBox(
+            width: 220,
+            child: Slider(
+              value: dayW.clamp(ViewPrefs.dayMin, ViewPrefs.dayMax).toDouble(),
+              min: ViewPrefs.dayMin,
+              max: ViewPrefs.dayMax,
+              onChanged: zoom,
+            ),
+          ),
+          IconButton(tooltip: 'Zoom in', onPressed: () => zoom(dayW * 1.25), icon: const Icon(Icons.zoom_in)),
+          CwChip(label: 'Fit to screen', icon: Icons.fit_screen_outlined, selected: fit, onTap: () => s.setSizes(s.view.copyWith(dayW: 0))),
+          CwChip(label: 'Weeks', selected: !fit && (dayW - 20).abs() < 0.5, onTap: () => zoom(20)),
+          CwChip(label: 'Months', selected: !fit && (dayW - 6).abs() < 0.5, onTap: () => zoom(6)),
+        ]),
+      );
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        controls,
+        _chart(context, s, c, tasks, today, first, last, days, dayW, labelW, wide),
+      ]);
+    });
+  }
+
+  Widget _chart(BuildContext context, AppState s, CwColors c, List<ScheduleTask> tasks, DateTime today, DateTime first, DateTime last, int days,
+      double dayW, double labelW, bool wide) {
+
     const rowH = 46.0;
     const headH = 44.0;
     final width = days * dayW;
@@ -220,6 +269,14 @@ class _Timeline extends StatelessWidget {
     final weeks = <DateTime>[];
     for (var d = first; !d.isAfter(last); d = d.add(const Duration(days: 7))) {
       weeks.add(d);
+    }
+    // When zoomed out, label every 2nd or 4th week so the dates don't overlap.
+    final labelEvery = (78 / (dayW * 7)).ceil().clamp(1, 8);
+    if (!_scrolledToToday) {
+      _scrolledToToday = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_scroll.hasClients) _scroll.jumpTo((x(today) - 200).clamp(0.0, _scroll.position.maxScrollExtent).toDouble());
+      });
     }
     final start = s.project?.coordinationStart;
 
@@ -261,12 +318,19 @@ class _Timeline extends StatelessWidget {
               ),
           ]),
         ),
+        if (wide)
+          SizedBox(
+            height: headH + rowH * tasks.length,
+            child: ResizeHandle(
+              onDrag: (dx) => s.setSizes(s.view.copyWith(taskColW: labelW + dx)),
+              onReset: () => s.setSizes(s.view.copyWith(taskColW: 280)),
+            ),
+          ),
         // Bars (scroll sideways)
         Expanded(
           child: SingleChildScrollView(
             scrollDirection: Axis.horizontal,
-            // Open with today in view.
-            controller: ScrollController(initialScrollOffset: (x(today) - 200).clamp(0, width).toDouble()),
+            controller: _scroll,
             child: SizedBox(
               width: width,
               height: headH + rowH * tasks.length,
@@ -279,6 +343,7 @@ class _Timeline extends StatelessWidget {
                     bottom: 0,
                     child: Container(width: 1, color: c.line),
                   ),
+                  if (i % labelEvery == 0)
                   Positioned(
                     left: x(weeks[i]) + 6,
                     top: 6,

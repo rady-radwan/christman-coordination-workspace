@@ -46,6 +46,8 @@ class SettingsScreen extends StatelessWidget {
                   const SizedBox(height: 16),
                   const AppearancePanel(),
                   const SizedBox(height: 16),
+                  const _SizesPanel(),
+                  const SizedBox(height: 16),
                   Panel(
                     padding: const EdgeInsets.all(18),
                     child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -196,6 +198,93 @@ class _UpdatesPanelState extends State<_UpdatesPanel> {
             label: const Text('Check for updates'),
           ),
         ]),
+      ]),
+    );
+  }
+}
+
+/// Item photo size, description text size, card color and panel widths (saved for this person).
+class _SizesPanel extends StatelessWidget {
+  const _SizesPanel();
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.watch<AppState>();
+    final c = CwColors.of(context);
+    final v = s.view;
+    Widget row(String title, String value, Widget slider, {String? hint}) => Padding(
+          padding: const EdgeInsets.only(top: 10),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15))),
+              Text(value, style: TextStyle(fontWeight: FontWeight.w700, color: c.accentText)),
+            ]),
+            if (hint != null) Text(hint, style: TextStyle(fontSize: 13, color: c.muted)),
+            slider,
+          ]),
+        );
+    return Panel(
+      padding: const EdgeInsets.all(18),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Text('Layout and sizes', style: condensed(22, color: c.ink)),
+        const SizedBox(height: 4),
+        Text('Your own choices; they follow you to any computer you sign in on.', style: TextStyle(color: c.ink2)),
+        row(
+          'Item photo size',
+          '${(v.photoShare * 100).round()}% of the width',
+          Slider(
+            value: v.photoShare,
+            min: ViewPrefs.photoMin,
+            max: ViewPrefs.photoMax,
+            divisions: ((ViewPrefs.photoMax - ViewPrefs.photoMin) * 20).round(),
+            onChanged: (x) => s.setSizes(v.copyWith(photoShare: x)),
+          ),
+          hint: 'The photo sits beside the description on an item page. You can also drag the edge between them.',
+        ),
+        row(
+          'Description text size',
+          '${v.descSize.round()}',
+          Slider(
+            value: v.descSize,
+            min: ViewPrefs.descMin,
+            max: ViewPrefs.descMax,
+            divisions: (ViewPrefs.descMax - ViewPrefs.descMin).round(),
+            onChanged: (x) => s.setSizes(v.copyWith(descSize: x.roundToDouble())),
+          ),
+        ),
+        Container(
+          margin: const EdgeInsets.only(bottom: 4),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(color: c.surface2, borderRadius: BorderRadius.circular(10)),
+          child: Text('Example: the duct crosses the steel beam above the corridor ceiling.',
+              style: TextStyle(fontSize: v.descSize, height: 1.5, fontWeight: FontWeight.w500, color: c.ink)),
+        ),
+        row(
+          'Item card color',
+          v.cardTint == 0 ? 'Off' : '${(v.cardTint * 100).round()}%',
+          Slider(
+            value: v.cardTint,
+            min: 0,
+            max: 1,
+            divisions: 20,
+            onChanged: (x) => s.setSizes(v.copyWith(cardTint: x)),
+          ),
+          hint: 'How strongly the priority color fills the item cards in the list.',
+        ),
+        const SizedBox(height: 10),
+        Text('Panel widths', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+        Text('Drag the edge between any two panels (sidebar, item list, item page, facts column, schedule task names). '
+            'Double-click an edge to put it back.',
+            style: TextStyle(fontSize: 13, color: c.muted)),
+        const SizedBox(height: 10),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: OutlinedButton.icon(
+            onPressed: () => s.setSizes(v.resetPanels().copyWith(photoShare: 0.5, descSize: 17, cardTint: 0.5, dayW: 0)),
+            icon: const Icon(Icons.restart_alt, size: 18),
+            label: const Text('Reset all sizes'),
+          ),
+        ),
       ]),
     );
   }

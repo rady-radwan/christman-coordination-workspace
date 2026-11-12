@@ -161,8 +161,17 @@ class _ItemDetailState extends State<ItemDetail> {
             child: twoColumns
                 ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Expanded(child: _description(item, c, thread)),
-                    const SizedBox(width: 20),
-                    SizedBox(width: 300, child: facts),
+                    const SizedBox(width: 6),
+                    // Drag to make the facts column wider or narrower.
+                    SizedBox(
+                      height: 420,
+                      child: ResizeHandle(
+                        onDrag: (dx) => s.setSizes(s.view.copyWith(factsW: s.view.factsW - dx)),
+                        onReset: () => s.setSizes(s.view.copyWith(factsW: 300)),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    SizedBox(width: s.view.factsW.clamp(220.0, box.maxWidth * 0.45).toDouble(), child: facts),
                   ])
                 : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                     facts,
@@ -215,31 +224,55 @@ class _ItemDetailState extends State<ItemDetail> {
   Widget _description(Item item, CwColors c, Widget thread) {
     final s = context.read<AppState>();
     final coord = s.myRole.isCoord;
+    final v = s.view;
+    final gallery = item.photos.isEmpty
+        ? null
+        : ItemGallery(
+            key: ValueKey(item.photos.join()),
+            refs: item.photos,
+            onMarkUp: coord ? (i) => _markUpStored(s, item, i) : null,
+            onAdd: coord ? () => _addPhotos(s, item) : null,
+            onRemove: coord ? (i) => _removePhoto(s, item, i) : null,
+          );
+    final info = _DescriptionPane(item: item);
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      if (item.photos.isNotEmpty) ...[
-        ItemGallery(
-          key: ValueKey(item.photos.join()),
-          refs: item.photos,
-          onMarkUp: coord ? (i) => _markUpStored(s, item, i) : null,
-          onAdd: coord ? () => _addPhotos(s, item) : null,
-          onRemove: coord ? (i) => _removePhoto(s, item, i) : null,
-        ),
-        const SizedBox(height: 16),
-      ] else if (coord) ...[
-        Align(
-          alignment: Alignment.centerLeft,
-          child: OutlinedButton.icon(
-            onPressed: () => _addPhotos(s, item),
-            icon: const Icon(Icons.add_photo_alternate_outlined, size: 18),
-            label: const Text('Add Photos / Screenshots'),
+      if (gallery != null)
+        LayoutBuilder(builder: (context, box) {
+          // Photo and description side by side when there is room; the split follows Settings (or drag the edge).
+          if (box.maxWidth < 640) {
+            return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [gallery, const SizedBox(height: 16), info]);
+          }
+          const gap = 22.0;
+          final photoW = (box.maxWidth - gap) * v.photoShare;
+          return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            SizedBox(width: photoW, child: gallery),
+            SizedBox(
+              width: gap,
+              height: photoW * 9 / 16,
+              child: ResizeHandle(
+                width: gap,
+                onDrag: (dx) => s.setSizes(s.view.copyWith(photoShare: s.view.photoShare + dx / (box.maxWidth - gap))),
+                onReset: () => s.setSizes(s.view.copyWith(photoShare: 0.5)),
+              ),
+            ),
+            Expanded(child: info),
+          ]);
+        })
+      else ...[
+        if (coord) ...[
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: () => _addPhotos(s, item),
+              icon: const Icon(Icons.add_photo_alternate_outlined, size: 18),
+              label: const Text('Add Photos / Screenshots'),
+            ),
           ),
-        ),
-        const SizedBox(height: 16),
+          const SizedBox(height: 16),
+        ],
+        info,
       ],
-      if (item.description.isNotEmpty) ...[
-        SelectableText(item.description, style: TextStyle(fontSize: 15, height: 1.5, color: c.ink2)),
-        const SizedBox(height: 18),
-      ],
+      const SizedBox(height: 22),
       thread,
     ]);
   }
@@ -656,14 +689,6 @@ class _Facts extends StatelessWidget {
           ]),
         );
 
-    final modelRef = [
-      if (item.clashTest.isNotEmpty) 'Test: ${item.clashTest}',
-      if (item.clashId.isNotEmpty) 'Clash ID ${item.clashId}',
-      if (item.viewpoint.isNotEmpty) 'Viewpoint ${item.viewpoint}',
-      if (item.revitIds.isNotEmpty) 'Revit IDs ${item.revitIds}',
-      if (item.sheet.isNotEmpty) 'Sheet ${item.sheet}',
-    ].join('\n');
-
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       if (item.status.isActive) ...[
         Panel(
@@ -701,8 +726,6 @@ class _Facts extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(14, 14, 14, 2),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           fact('Type', type == null ? '—' : '${type.name} (${type.code})'),
-          fact('Location', item.locationText.isEmpty ? 'Not set' : item.locationText),
-          if (modelRef.isNotEmpty) fact('Model reference', modelRef),
           fact('Raised', '${raisedText(item.createdAt)}\nby ${s.person(item.createdBy)?.name ?? 'someone'}'),
           fact('Response due', item.dueDate == null ? 'Not set' : weekdayDate(item.dueDate!)),
           if (item.closedAt != null)
@@ -900,5 +923,55 @@ class _EventLine extends StatelessWidget {
         ),
       ]),
     );
+  }
+}
+
+/// The item's description in large, clear text, with where it is and the model reference.
+class _DescriptionPane extends StatelessWidget {
+  const _DescriptionPane({required this.item});
+  final Item item;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.watch<AppState>();
+    final c = CwColors.of(context);
+    final size = s.view.descSize;
+    Widget label(String t) => Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Text(t, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 0.8, color: c.muted)),
+        );
+    final model = [
+      if (item.clashTest.isNotEmpty) 'Clash test: ${item.clashTest}',
+      if (item.clashId.isNotEmpty) 'Clash ID: ${item.clashId}',
+      if (item.viewpoint.isNotEmpty) 'Viewpoint: ${item.viewpoint}',
+      if (item.sheet.isNotEmpty) 'Sheet: ${item.sheet}',
+      if (item.revitIds.isNotEmpty) 'Revit IDs: ${item.revitIds}',
+    ];
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      label('DESCRIPTION'),
+      SelectableText(
+        item.description.trim().isEmpty ? 'No description yet.' : item.description,
+        style: TextStyle(
+          fontSize: size,
+          height: 1.5,
+          fontWeight: FontWeight.w500,
+          color: item.description.trim().isEmpty ? c.muted : c.ink,
+        ),
+      ),
+      if (item.locationText.isNotEmpty) ...[
+        const SizedBox(height: 18),
+        label('WHERE'),
+        SelectableText(item.locationText, style: TextStyle(fontSize: (size * 0.82).clamp(13.0, 22.0).toDouble(), height: 1.4, color: c.ink2)),
+      ],
+      if (model.isNotEmpty) ...[
+        const SizedBox(height: 18),
+        label('MODEL REFERENCE'),
+        for (final m in model)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 3),
+            child: SelectableText(m, style: TextStyle(fontSize: (size * 0.82).clamp(13.0, 22.0).toDouble(), height: 1.4, color: c.ink2)),
+          ),
+      ],
+    ]);
   }
 }

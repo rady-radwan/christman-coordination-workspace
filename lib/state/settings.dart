@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../theme.dart';
+import 'view_prefs.dart';
 
 /// Things kept on this device. The look (theme, font, text size) is saved on the
 /// person's account too; this copy is used on the sign-in screen and while starting up.
@@ -42,4 +43,17 @@ class Settings {
   /// The newest app version this person was already told about (so the pop-up shows once per version).
   String get updateShown => _prefs.getString('update_shown') ?? '';
   Future<void> setUpdateShown(String v) => _prefs.setString('update_shown', v);
+
+  /// Panel sizes, photo size, text size… (also saved on the account).
+  ViewPrefs get view {
+    final raw = _prefs.getString('view');
+    if (raw == null) return const ViewPrefs();
+    try {
+      return ViewPrefs.fromJson(jsonDecode(raw));
+    } catch (_) {
+      return const ViewPrefs();
+    }
+  }
+
+  Future<void> setView(ViewPrefs v) => _prefs.setString('view', jsonEncode(v.toJson()));
 }

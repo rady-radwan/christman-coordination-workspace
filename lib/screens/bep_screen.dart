@@ -307,10 +307,15 @@ class _BepScreenState extends State<BepScreen> {
       Expanded(
         child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Expanded(child: ColoredBox(color: c.surface, child: sections)),
+          ResizeHandle(
+            showLine: true,
+            onDrag: (dx) => s.setSizes(s.view.copyWith(factsW: s.view.factsW - dx)),
+            onReset: () => s.setSizes(s.view.copyWith(factsW: 300)),
+          ),
           SizedBox(
-            width: 400,
+            width: (s.view.factsW + 100).clamp(260.0, 620.0).toDouble(),
             child: DecoratedBox(
-              decoration: BoxDecoration(color: c.panel, border: Border(left: BorderSide(color: c.line))),
+              decoration: BoxDecoration(color: c.panel),
               child: files,
             ),
           ),

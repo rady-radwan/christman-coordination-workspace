@@ -57,11 +57,16 @@ class MeetingsScreen extends StatelessWidget {
       Expanded(
         child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           SizedBox(
-            width: 400,
+            width: s.view.listW,
             child: DecoratedBox(
-              decoration: BoxDecoration(color: c.panel, border: Border(right: BorderSide(color: c.line))),
+              decoration: BoxDecoration(color: c.panel),
               child: _MeetingList(onOpen: (m) => s.selectMeeting(m.id)),
             ),
+          ),
+          ResizeHandle(
+            showLine: true,
+            onDrag: (dx) => s.setSizes(s.view.copyWith(listW: s.view.listW + dx)),
+            onReset: () => s.setSizes(s.view.copyWith(listW: 420)),
           ),
           Expanded(
             child: ColoredBox(
