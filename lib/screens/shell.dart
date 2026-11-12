@@ -52,6 +52,12 @@ class _WideShell extends StatelessWidget {
       backgroundColor: c.bg,
       body: Row(children: [
         const _Sidebar(),
+        // Drag to make the sidebar wider or narrower.
+        ResizeHandle(
+          width: 7,
+          onDrag: (dx) => s.setView(s.view.copyWith(sidebarW: s.view.sidebarW + dx)),
+          onReset: () => s.setView(s.view.copyWith(sidebarW: 248)),
+        ),
         Expanded(child: Column(children: [const UpdateBanner(), Expanded(child: body)])),
       ]),
     );
@@ -105,9 +111,8 @@ class _Sidebar extends StatelessWidget {
       );
     }
 
-    final scale = s.appearance.textScale;
     return Container(
-      width: 248 * (scale > 1 ? scale.clamp(1.0, 1.25).toDouble() : 1.0),
+      width: s.view.sidebarW,
       color: c.side,
       padding: const EdgeInsets.fromLTRB(14, 20, 14, 12),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -223,11 +228,16 @@ class _ItemsWorkspace extends StatelessWidget {
       Expanded(
         child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           SizedBox(
-            width: 420,
+            width: s.view.listW,
             child: DecoratedBox(
-              decoration: BoxDecoration(color: c.panel, border: Border(right: BorderSide(color: c.line))),
+              decoration: BoxDecoration(color: c.panel),
               child: ItemListPanel(ballInCourt: ball),
             ),
+          ),
+          ResizeHandle(
+            showLine: true,
+            onDrag: (dx) => s.setView(s.view.copyWith(listW: s.view.listW + dx)),
+            onReset: () => s.setView(s.view.copyWith(listW: 420)),
           ),
           Expanded(
             child: ColoredBox(

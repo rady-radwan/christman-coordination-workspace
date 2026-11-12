@@ -468,3 +468,61 @@ Future<String?> askNote(BuildContext context,
     ),
   );
 }
+
+/// A thin edge between two panels; drag it sideways to resize them.
+/// Double-click puts the panel back to its normal size.
+class ResizeHandle extends StatefulWidget {
+  const ResizeHandle({super.key, required this.onDrag, this.onReset, this.width = 9, this.showLine = false});
+
+  /// Called with the sideways movement in pixels while dragging.
+  final void Function(double dx) onDrag;
+  final VoidCallback? onReset;
+  final double width;
+
+  /// Draw a thin line even when the mouse is not over it.
+  final bool showLine;
+
+  @override
+  State<ResizeHandle> createState() => _ResizeHandleState();
+}
+
+class _ResizeHandleState extends State<ResizeHandle> {
+  bool _hover = false;
+  bool _drag = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = CwColors.of(context);
+    final active = _hover || _drag;
+    return MouseRegion(
+      cursor: SystemMouseCursors.resizeColumn,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: Tooltip(
+        message: 'Drag to resize · double-click to reset',
+        waitDuration: const Duration(milliseconds: 900),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onHorizontalDragStart: (_) => setState(() => _drag = true),
+          onHorizontalDragUpdate: (d) => widget.onDrag(d.delta.dx),
+          onHorizontalDragEnd: (_) => setState(() => _drag = false),
+          onHorizontalDragCancel: () => setState(() => _drag = false),
+          onDoubleTap: widget.onReset,
+          child: SizedBox(
+            width: widget.width,
+            child: Center(
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 120),
+                width: active ? 3 : 1,
+                decoration: BoxDecoration(
+                  color: active ? c.accent : (widget.showLine ? c.line : Colors.transparent),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

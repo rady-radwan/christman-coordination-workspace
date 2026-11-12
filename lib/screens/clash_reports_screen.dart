@@ -60,11 +60,16 @@ class ClashReportsScreen extends StatelessWidget {
       Expanded(
         child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           SizedBox(
-            width: 360,
+            width: s.view.listW,
             child: DecoratedBox(
-              decoration: BoxDecoration(color: c.panel, border: Border(right: BorderSide(color: c.line))),
+              decoration: BoxDecoration(color: c.panel),
               child: list,
             ),
+          ),
+          ResizeHandle(
+            showLine: true,
+            onDrag: (dx) => s.setView(s.view.copyWith(listW: s.view.listW + dx)),
+            onReset: () => s.setView(s.view.copyWith(listW: 420)),
           ),
           Expanded(
             child: ColoredBox(

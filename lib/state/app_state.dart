@@ -11,6 +11,9 @@ import '../config.dart';
 import '../util/dates.dart';
 import '../util/update_check.dart';
 import 'settings.dart';
+import 'view_prefs.dart';
+
+export 'view_prefs.dart';
 
 /// The parts of the app reached from the sidebar (Windows) or the bottom tabs (phone).
 /// [more] is the phone's "More" menu.
@@ -42,7 +45,9 @@ extension DueFilterLabel on DueFilter {
 }
 
 class AppState extends ChangeNotifier {
-  AppState(this.api, this.settings) : appearance = settings.appearance;
+  AppState(this.api, this.settings)
+      : appearance = settings.appearance,
+        view = settings.view;
 
   final Api api;
   final Settings settings;
@@ -899,9 +904,35 @@ class AppState extends ChangeNotifier {
     if (p.prefs.isNotEmpty) {
       appearance = Appearance.fromJson(p.prefs);
       unawaited(settings.setAppearance(appearance));
-    } else if (appearance != const Appearance()) {
-      unawaited(api.savePrefs(appearance.toJson()).catchError((_) {}));
+      if (p.prefs['view'] is Map) {
+        view = ViewPrefs.fromJson(p.prefs['view']);
+        unawaited(settings.setView(view));
+      }
+    } else if (appearance != const Appearance() || view != const ViewPrefs()) {
+      unawaited(api.savePrefs(_prefsJson()).catchError((_) {}));
     }
+  }
+
+  /// Everything saved on the account: the look plus the sizes.
+  Map<String, dynamic> _prefsJson() => {...appearance.toJson(), 'view': view.toJson()};
+
+  void _saveSoon() {
+    _saveLook?.cancel();
+    // Wait a moment so dragging a slider or a panel edge doesn't save on every step.
+    _saveLook = Timer(const Duration(milliseconds: 700), () {
+      if (me != null) unawaited(api.savePrefs(_prefsJson()).catchError((_) {}));
+    });
+  }
+
+  /// This person's panel sizes, photo size and text sizes.
+  ViewPrefs view;
+
+  void setView(ViewPrefs v) {
+    if (v == view) return;
+    view = v;
+    notifyListeners();
+    unawaited(settings.setView(v));
+    _saveSoon();
   }
 
   Timer? _saveLook;
@@ -912,11 +943,7 @@ class AppState extends ChangeNotifier {
     appearance = a;
     notifyListeners();
     unawaited(settings.setAppearance(a));
-    _saveLook?.cancel();
-    // Wait a moment so dragging the text-size slider doesn't save on every step.
-    _saveLook = Timer(const Duration(milliseconds: 700), () {
-      if (me != null) unawaited(api.savePrefs(a.toJson()).catchError((_) {}));
-    });
+    _saveSoon();
   }
 
   Future<void> setThemeMode(ThemeMode m) async => setAppearance(appearance.copyWith(mode: m));
