@@ -229,7 +229,7 @@ class _TimelineState extends State<_Timeline> {
       final fitW = (barsW / days).clamp(1.0, ViewPrefs.dayMax).toDouble();
       final fit = s.view.dayW <= 0;
       final dayW = fit ? fitW : s.view.dayW;
-      void zoom(double to) => s.setView(s.view.copyWith(dayW: to.clamp(ViewPrefs.dayMin, ViewPrefs.dayMax).toDouble()));
+      void zoom(double to) => s.setSizes(s.view.copyWith(dayW: to.clamp(ViewPrefs.dayMin, ViewPrefs.dayMax).toDouble()));
 
       final controls = Padding(
         padding: const EdgeInsets.only(bottom: 10),
@@ -246,7 +246,7 @@ class _TimelineState extends State<_Timeline> {
             ),
           ),
           IconButton(tooltip: 'Zoom in', onPressed: () => zoom(dayW * 1.25), icon: const Icon(Icons.zoom_in)),
-          CwChip(label: 'Fit to screen', icon: Icons.fit_screen_outlined, selected: fit, onTap: () => s.setView(s.view.copyWith(dayW: 0))),
+          CwChip(label: 'Fit to screen', icon: Icons.fit_screen_outlined, selected: fit, onTap: () => s.setSizes(s.view.copyWith(dayW: 0))),
           CwChip(label: 'Weeks', selected: !fit && (dayW - 20).abs() < 0.5, onTap: () => zoom(20)),
           CwChip(label: 'Months', selected: !fit && (dayW - 6).abs() < 0.5, onTap: () => zoom(6)),
         ]),
@@ -322,8 +322,8 @@ class _TimelineState extends State<_Timeline> {
           SizedBox(
             height: headH + rowH * tasks.length,
             child: ResizeHandle(
-              onDrag: (dx) => s.setView(s.view.copyWith(taskColW: labelW + dx)),
-              onReset: () => s.setView(s.view.copyWith(taskColW: 280)),
+              onDrag: (dx) => s.setSizes(s.view.copyWith(taskColW: labelW + dx)),
+              onReset: () => s.setSizes(s.view.copyWith(taskColW: 280)),
             ),
           ),
         // Bars (scroll sideways)

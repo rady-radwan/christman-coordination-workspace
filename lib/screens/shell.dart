@@ -55,8 +55,8 @@ class _WideShell extends StatelessWidget {
         // Drag to make the sidebar wider or narrower.
         ResizeHandle(
           width: 7,
-          onDrag: (dx) => s.setView(s.view.copyWith(sidebarW: s.view.sidebarW + dx)),
-          onReset: () => s.setView(s.view.copyWith(sidebarW: 248)),
+          onDrag: (dx) => s.setSizes(s.view.copyWith(sidebarW: s.view.sidebarW + dx)),
+          onReset: () => s.setSizes(s.view.copyWith(sidebarW: 248)),
         ),
         Expanded(child: Column(children: [const UpdateBanner(), Expanded(child: body)])),
       ]),
@@ -236,8 +236,8 @@ class _ItemsWorkspace extends StatelessWidget {
           ),
           ResizeHandle(
             showLine: true,
-            onDrag: (dx) => s.setView(s.view.copyWith(listW: s.view.listW + dx)),
-            onReset: () => s.setView(s.view.copyWith(listW: 420)),
+            onDrag: (dx) => s.setSizes(s.view.copyWith(listW: s.view.listW + dx)),
+            onReset: () => s.setSizes(s.view.copyWith(listW: 420)),
           ),
           Expanded(
             child: ColoredBox(

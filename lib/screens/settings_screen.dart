@@ -237,7 +237,7 @@ class _SizesPanel extends StatelessWidget {
             min: ViewPrefs.photoMin,
             max: ViewPrefs.photoMax,
             divisions: ((ViewPrefs.photoMax - ViewPrefs.photoMin) * 20).round(),
-            onChanged: (x) => s.setView(v.copyWith(photoShare: x)),
+            onChanged: (x) => s.setSizes(v.copyWith(photoShare: x)),
           ),
           hint: 'The photo sits beside the description on an item page. You can also drag the edge between them.',
         ),
@@ -249,7 +249,7 @@ class _SizesPanel extends StatelessWidget {
             min: ViewPrefs.descMin,
             max: ViewPrefs.descMax,
             divisions: (ViewPrefs.descMax - ViewPrefs.descMin).round(),
-            onChanged: (x) => s.setView(v.copyWith(descSize: x.roundToDouble())),
+            onChanged: (x) => s.setSizes(v.copyWith(descSize: x.roundToDouble())),
           ),
         ),
         Container(
@@ -267,7 +267,7 @@ class _SizesPanel extends StatelessWidget {
             min: 0,
             max: 1,
             divisions: 20,
-            onChanged: (x) => s.setView(v.copyWith(cardTint: x)),
+            onChanged: (x) => s.setSizes(v.copyWith(cardTint: x)),
           ),
           hint: 'How strongly the priority color fills the item cards in the list.',
         ),
@@ -280,7 +280,7 @@ class _SizesPanel extends StatelessWidget {
         Align(
           alignment: Alignment.centerLeft,
           child: OutlinedButton.icon(
-            onPressed: () => s.setView(v.resetPanels().copyWith(photoShare: 0.5, descSize: 17, cardTint: 0.5, dayW: 0)),
+            onPressed: () => s.setSizes(v.resetPanels().copyWith(photoShare: 0.5, descSize: 17, cardTint: 0.5, dayW: 0)),
             icon: const Icon(Icons.restart_alt, size: 18),
             label: const Text('Reset all sizes'),
           ),

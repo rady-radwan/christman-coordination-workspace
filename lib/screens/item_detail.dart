@@ -166,8 +166,8 @@ class _ItemDetailState extends State<ItemDetail> {
                     SizedBox(
                       height: 420,
                       child: ResizeHandle(
-                        onDrag: (dx) => s.setView(s.view.copyWith(factsW: s.view.factsW - dx)),
-                        onReset: () => s.setView(s.view.copyWith(factsW: 300)),
+                        onDrag: (dx) => s.setSizes(s.view.copyWith(factsW: s.view.factsW - dx)),
+                        onReset: () => s.setSizes(s.view.copyWith(factsW: 300)),
                       ),
                     ),
                     const SizedBox(width: 6),
@@ -251,8 +251,8 @@ class _ItemDetailState extends State<ItemDetail> {
               height: photoW * 9 / 16,
               child: ResizeHandle(
                 width: gap,
-                onDrag: (dx) => s.setView(s.view.copyWith(photoShare: s.view.photoShare + dx / (box.maxWidth - gap))),
-                onReset: () => s.setView(s.view.copyWith(photoShare: 0.5)),
+                onDrag: (dx) => s.setSizes(s.view.copyWith(photoShare: s.view.photoShare + dx / (box.maxWidth - gap))),
+                onReset: () => s.setSizes(s.view.copyWith(photoShare: 0.5)),
               ),
             ),
             Expanded(child: info),

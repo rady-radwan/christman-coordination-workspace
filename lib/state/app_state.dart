@@ -927,7 +927,7 @@ class AppState extends ChangeNotifier {
   /// This person's panel sizes, photo size and text sizes.
   ViewPrefs view;
 
-  void setView(ViewPrefs v) {
+  void setSizes(ViewPrefs v) {
     if (v == view) return;
     view = v;
     notifyListeners();

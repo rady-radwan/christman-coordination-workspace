@@ -309,8 +309,8 @@ class _BepScreenState extends State<BepScreen> {
           Expanded(child: ColoredBox(color: c.surface, child: sections)),
           ResizeHandle(
             showLine: true,
-            onDrag: (dx) => s.setView(s.view.copyWith(factsW: s.view.factsW - dx)),
-            onReset: () => s.setView(s.view.copyWith(factsW: 300)),
+            onDrag: (dx) => s.setSizes(s.view.copyWith(factsW: s.view.factsW - dx)),
+            onReset: () => s.setSizes(s.view.copyWith(factsW: 300)),
           ),
           SizedBox(
             width: (s.view.factsW + 100).clamp(260.0, 620.0).toDouble(),

@@ -65,8 +65,8 @@ class MeetingsScreen extends StatelessWidget {
           ),
           ResizeHandle(
             showLine: true,
-            onDrag: (dx) => s.setView(s.view.copyWith(listW: s.view.listW + dx)),
-            onReset: () => s.setView(s.view.copyWith(listW: 420)),
+            onDrag: (dx) => s.setSizes(s.view.copyWith(listW: s.view.listW + dx)),
+            onReset: () => s.setSizes(s.view.copyWith(listW: 420)),
           ),
           Expanded(
             child: ColoredBox(
